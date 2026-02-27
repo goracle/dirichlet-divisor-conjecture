@@ -1,8 +1,8 @@
-# A078567 — Arithmetic Subsequence Counter
+# A078567 — Arithmetic Subsequence Counter -> Dirichlet Divisor Conjecture
 
 Empirical investigation of **OEIS A078567**: the number of arithmetic subsequences of `[1..n]` with length > 1, and the growth rate of its oscillatory error term.
 
-Original formula by Dan Hoying (2022). See [`arith_pic.pdf`](arith_pic.pdf).
+Original formula by Claire Hoying (2022). See [`arith_pic.pdf`](arith_pic.pdf).
 
 ---
 
@@ -84,7 +84,7 @@ No claim is made that the true limit is exactly 0.25 — convergence is slow and
 | `plot_theta.py` | Python script — reads `./delta` stdout, plots θ_OLS(N) per decade |
 | `theta_ols_v2.html` | Pre-generated interactive plot: cumulative, sliding ±0.75-decade, and single-decade OLS (N = 10¹⁸, 34,555 sample points) |
 | `theta_cutoff_walkback.html` | Interactive left-cutoff explorer: drag k_min to trim early decades and watch OLS([k_min..10¹⁸]) respond — demonstrates the estimate's robustness |
-| `arith_pic.pdf` | Original formula derivation by Dan Hoying |
+| `arith_pic.pdf` | Original formula derivation by Claire Hoying |
 
 ---
 
