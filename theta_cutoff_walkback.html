@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>theta_OLS — left-cutoff explorer — A078567</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oxanium:wght@300;400;600;700&family=Source+Code+Pro:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{background:#05080f;color:#c4d4e8;font-family:'Oxanium',sans-serif;
+       min-height:100vh;display:flex;flex-direction:column;padding:32px 36px 48px;gap:24px}
+  body::before{content:'';position:fixed;inset:0;
+    background-image:linear-gradient(rgba(0,200,255,0.022) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(0,200,255,0.022) 1px,transparent 1px);
+    background-size:40px 40px;pointer-events:none;z-index:0}
+  .header{position:relative;z-index:1;border-left:3px solid #00c8ff;padding-left:18px}
+  .header h1{font-size:1.45rem;font-weight:700;letter-spacing:.04em;color:#fff;text-transform:uppercase}
+  .header h1 em{color:#00c8ff;font-style:normal}
+  .header .sub{font-size:.75rem;font-family:'Source Code Pro',monospace;color:#5a7a9a;margin-top:5px}
+
+  /* ── stat row ── */
+  .stat-row{position:relative;z-index:1;display:flex;gap:14px;flex-wrap:wrap}
+  .stat{background:rgba(0,200,255,.04);border:1px solid rgba(0,200,255,.1);border-radius:4px;
+        padding:8px 16px;display:flex;flex-direction:column;gap:2px;transition:border-color .25s}
+  .stat.live{border-color:rgba(0,200,255,.4)}
+  .stat .lbl{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:#5a7a9a}
+  .stat .val{font-size:1rem;font-weight:600;color:#e0eeff;font-family:'Source Code Pro',monospace;transition:color .2s}
+  .stat .val.above{color:#34d399}
+  .stat .val.at{color:#facc15}
+  .stat .val.below{color:#f87171}
+
+  /* ── slider panel ── */
+  .slider-card{position:relative;z-index:1;background:rgba(8,14,26,.85);
+               border:1px solid rgba(0,200,255,.1);border-radius:8px;padding:24px 28px 20px;
+               display:flex;flex-direction:column;gap:16px}
+  .slider-header{display:flex;justify-content:space-between;align-items:baseline}
+  .slider-label{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#5a7a9a}
+  .slider-value{font-family:'Source Code Pro',monospace;font-size:1.1rem;font-weight:600;color:#00c8ff}
+  .slider-track{position:relative;height:6px;background:rgba(0,200,255,.1);border-radius:3px}
+  .slider-fill{position:absolute;left:0;top:0;height:100%;background:linear-gradient(90deg,#00c8ff,#34d399);
+               border-radius:3px;transition:width .15s}
+  input[type=range]{
+    position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;margin:0;
+    -webkit-appearance:none;
+  }
+  .decade-ticks{display:flex;justify-content:space-between;margin-top:6px;
+                font-size:9px;font-family:'Source Code Pro',monospace;color:#3a5a7a}
+
+  /* ── main chart ── */
+  .chart-card{position:relative;z-index:1;background:rgba(8,14,26,.85);
+              border:1px solid rgba(0,200,255,.1);border-radius:8px;padding:24px 24px 16px}
+  .chart-title{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#5a7a9a;margin-bottom:14px}
+  .chart-wrap{position:relative;height:420px}
+  .legend{display:flex;gap:20px;flex-wrap:wrap;margin-top:14px;
+          font-size:11px;font-family:'Source Code Pro',monospace;color:#5a7a9a}
+  .legend-item{display:flex;align-items:center;gap:7px}
+  .ld{width:24px;height:2px;display:inline-block}
+
+  /* ── findings card ── */
+  .finding-card{position:relative;z-index:1;background:rgba(52,211,153,.04);
+                border:1px solid rgba(52,211,153,.2);border-radius:8px;
+                padding:18px 22px;font-family:'Source Code Pro',monospace;
+                font-size:12px;line-height:1.9;color:#7a9ab8}
+  .finding-card strong{color:#c4d4e8}
+  .hl{color:#00c8ff}.hl2{color:#ffaa44}.hl3{color:#f87171}.hlg{color:#34d399}
+
+  /* ── obs grid ── */
+  .obs-grid{position:relative;z-index:1;display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:750px){.obs-grid{grid-template-columns:1fr}}
+  .obs-card{background:rgba(0,200,255,.03);border:1px solid rgba(0,200,255,.1);
+            border-radius:6px;padding:14px 18px;
+            font-family:'Source Code Pro',monospace;font-size:11.5px;line-height:1.85;color:#7a9ab8}
+  .obs-card strong{color:#c4d4e8}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1><em>theta</em><sub>OLS</sub> — left-cutoff explorer — A078567</h1>
+  <div class="sub">OLS over [10^k_min .. 10^18] as k_min walks from 18 back to 4 &nbsp;·&nbsp;
+    does removing early-decade points change the answer?</div>
+</div>
+
+<div class="stat-row">
+  <div class="stat live"><span class="lbl">k_min (left cutoff)</span><span class="val" id="sKmin">10^4</span></div>
+  <div class="stat live"><span class="lbl">Truncated theta</span><span class="val above" id="sTheta">—</span></div>
+  <div class="stat"><span class="lbl">Points used</span><span class="val" id="sNpts">—</span></div>
+  <div class="stat"><span class="lbl">vs full OLS</span><span class="val" id="sDelta">—</span></div>
+  <div class="stat"><span class="lbl">Min theta (all cuts)</span><span class="val hlg">0.251092</span></div>
+  <div class="stat"><span class="lbl">Never below 0.25?</span><span class="val hlg">TRUE</span></div>
+</div>
+
+<div class="slider-card">
+  <div class="slider-header">
+    <span class="slider-label">left cutoff k_min &nbsp;—&nbsp; drag to trim early decades from the OLS</span>
+    <span class="slider-value" id="sliderLabel">10^4 → 10^18</span>
+  </div>
+  <div class="slider-track">
+    <div class="slider-fill" id="sliderFill" style="width:0%"></div>
+    <input type="range" id="slider" min="0" max="14" step="1" value="0">
+  </div>
+  <div class="decade-ticks" id="decadeTicks"></div>
+</div>
+
+<div class="chart-card">
+  <div class="chart-title">truncated cumulative OLS theta as left boundary walks forward</div>
+  <div class="chart-wrap"><canvas id="mainChart"></canvas></div>
+  <div class="legend">
+    <div class="legend-item"><span class="ld" style="background:#00c8ff"></span>OLS([k_min..18])</div>
+    <div class="legend-item"><span class="ld" style="background:rgba(0,200,255,.25)"></span>points included (right axis)</div>
+    <div class="legend-item"><span class="ld" style="background:rgba(255,68,102,.7)"></span>θ = 0.25 (conjecture)</div>
+    <div class="legend-item"><span class="ld" style="background:rgba(255,170,68,.7)"></span>θ = 131/416 (Huxley)</div>
+  </div>
+</div>
+
+<div class="finding-card">
+  <strong>Finding: the blue line barely moves.</strong><br>
+  Across all 15 possible left cutoffs (10^4 through 10^18), the cumulative OLS stays in the band
+  <span class="hlg">0.2511 – 0.2517</span>. The minimum is <span class="hlg">0.25109</span> at k_min = 17,
+  and it never drops below 0.25 under any cutoff.<br><br>
+  <strong>Why?</strong> OLS slope is dominated by points with high <em>leverage</em> —
+  i.e. points far from the mean x. The early small-n decades (k = 4 – 10) sit in a
+  narrow log-range and contribute almost zero leverage compared to the large-n decades.
+  Dropping them changes the fit by less than <span class="hl">Δθ ≈ 3×10⁻⁴</span>.<br><br>
+  The conjecture θ = 1/4 is consistent with the data under every possible left-cutoff choice.
+</div>
+
+<div class="obs-grid">
+  <div class="obs-card">
+    <strong>Leverage intuition</strong><br>
+    OLS slope = Σ(x−x̄)(y−ȳ) / Σ(x−x̄)². The denominator weights each point by
+    its squared distance from the mean x. At N = 10¹⁸, mean log(n) ≈ 37. A point
+    at n = 10⁵ (log n ≈ 11.5) has (x−x̄)² ≈ 650. A point at n = 10¹⁷ (log n ≈ 39)
+    has (x−x̄)² ≈ 4. But there are 2300 such points per decade — so the large-n
+    decades still dominate by sheer mass even with low per-point leverage.
+    Either way, the early decades are never driving the fit.
+  </div>
+  <div class="obs-card">
+    <strong>Implication</strong><br>
+    The OLS estimate of θ ≈ 0.2514 at N = 10¹⁸ is essentially the same whether
+    you use all 34,554 points or only the last 2,304 points (one decade).
+    The estimate is already dominated by large-n data. To push θ_OLS below 0.25,
+    you would need new data at N ≫ 10¹⁸ where the local exponent is genuinely
+    lower — not a trimming choice.
+  </div>
+</div>
+
+<script>
+// Per-decade data: exact OLS([k_min..18]) values precomputed
+// k_min walks from 4 (idx 0) to 18 (idx 14)
+const DECADES = [4,5,6,7,8,9,10,11,12,13,14,15,16,17,18];
+const THETAS  = [0.251363,0.251363,0.251367,0.251380,0.251420,0.251467,
+                 0.251511,0.251610,0.251704,0.251701,0.251651,0.251682,
+                 0.251741,0.251092,0.251264];
+const NPTS    = [34554,32251,29947,27643,25341,23037,20733,18429,16126,13822,11518,9214,6912,4608,2304];
+const FULL    = 0.251363; // OLS over all data (k_min=4)
+const CONJ    = 0.25, HUXLEY = 131/416;
+
+// Build decade tick labels
+const ticks = document.getElementById('decadeTicks');
+DECADES.forEach(k=>{
+  const d = document.createElement('span');
+  d.textContent = `10^${k}`;
+  ticks.appendChild(d);
+});
+
+const allKs = DECADES;
+const TT = {
+  backgroundColor:'#0a1220',borderColor:'rgba(0,200,255,.25)',borderWidth:1,
+  titleColor:'#7ab8d8',bodyColor:'#c4d4e8',
+  titleFont:{family:"'Source Code Pro'",size:11},bodyFont:{family:"'Source Code Pro'",size:11}
+};
+
+// Chart
+const ctx = document.getElementById('mainChart').getContext('2d');
+const chart = new Chart(ctx,{
+  type:'line',
+  data:{datasets:[
+    // OLS theta line
+    {label:'OLS theta',
+     data: DECADES.map((k,i)=>({x:k,y:THETAS[i]})),
+     borderColor:'#00c8ff',backgroundColor:'rgba(0,200,255,.06)',
+     borderWidth:2,pointRadius:4,pointBackgroundColor:'#00c8ff',
+     pointBorderColor:'#05080f',pointBorderWidth:1.5,
+     fill:false,tension:.2,order:1,yAxisID:'y'},
+    // Greyed-out future points (will be toggled)
+    {label:'OLS theta (excluded)',
+     data:[],
+     borderColor:'rgba(0,200,255,.15)',backgroundColor:'transparent',
+     borderWidth:1.5,pointRadius:3,pointBackgroundColor:'rgba(0,200,255,.2)',
+     pointBorderColor:'transparent',borderDash:[3,3],
+     fill:false,tension:.2,order:2,yAxisID:'y'},
+    // npts bar (right axis)
+    {label:'pts included',
+     data: DECADES.map((k,i)=>({x:k,y:NPTS[i]})),
+     borderColor:'rgba(0,200,255,.0)',
+     backgroundColor:'rgba(0,200,255,.12)',
+     borderWidth:0,pointRadius:0,fill:'origin',
+     tension:0,order:4,yAxisID:'y2',type:'bar'},
+    // conjecture
+    {label:'conj',data:DECADES.map(k=>({x:k,y:CONJ})),
+     borderColor:'rgba(255,68,102,.65)',borderWidth:1.5,
+     borderDash:[6,4],pointRadius:0,fill:false,order:5,yAxisID:'y'},
+    // huxley
+    {label:'huxley',data:DECADES.map(k=>({x:k,y:HUXLEY})),
+     borderColor:'rgba(255,170,68,.65)',borderWidth:1.5,
+     borderDash:[3,4],pointRadius:0,fill:false,order:6,yAxisID:'y'},
+    // active point marker (single point)
+    {label:'active',data:[],
+     borderColor:'#facc15',backgroundColor:'#facc15',
+     borderWidth:2,pointRadius:7,pointBorderColor:'#05080f',pointBorderWidth:2,
+     fill:false,order:0,yAxisID:'y',showLine:false},
+  ]},
+  options:{
+    responsive:true,maintainAspectRatio:false,parsing:false,
+    animation:{duration:200,easing:'easeOutQuart'},
+    plugins:{legend:{display:false},tooltip:{...TT,callbacks:{
+      title:c=>`k_min = ${c[0].parsed.x}  (N_min = 10^${c[0].parsed.x})`,
+      label:c=>{
+        if(c.datasetIndex===2) return `pts included: ${c.parsed.y.toLocaleString()}`;
+        if(c.datasetIndex>2)   return `${['','','','θ=0.25','Huxley'][c.datasetIndex]}: ${c.parsed.y.toFixed(4)}`;
+        const i=c.dataIndex;
+        return[`theta([10^${DECADES[i]}..10^18]): ${c.parsed.y.toFixed(6)}`,
+               `vs full OLS: ${(c.parsed.y-FULL>=0?'+':'')}${(c.parsed.y-FULL).toFixed(6)}`,
+               `pts: ${NPTS[i].toLocaleString()}`];
+      }
+    }}},
+    scales:{
+      x:{type:'linear',
+         ticks:{color:'#5a7a9a',font:{family:"'Source Code Pro'",size:10},
+                callback:v=>`10^${v}`,stepSize:1},
+         grid:{color:'rgba(0,200,255,.06)'},
+         title:{display:true,text:'k_min (left cutoff)',color:'#5a7a9a',
+                font:{family:"'Source Code Pro'",size:10}}},
+      y:{position:'left',
+         min:0.20,max:0.32,
+         ticks:{color:'#5a7a9a',font:{family:"'Source Code Pro'",size:10},
+                callback:v=>v.toFixed(3)},
+         grid:{color:'rgba(0,200,255,.06)'},
+         title:{display:true,text:'theta_OLS',color:'#5a7a9a',
+                font:{family:"'Source Code Pro'",size:10}}},
+      y2:{position:'right',
+          min:0,max:40000,
+          ticks:{color:'rgba(0,200,255,.3)',font:{family:"'Source Code Pro'",size:9},
+                 callback:v=>v>0?`${(v/1000).toFixed(0)}k`:0},
+          grid:{display:false},
+          title:{display:true,text:'points included',color:'rgba(0,200,255,.3)',
+                 font:{family:"'Source Code Pro'",size:9}}}
+    }
+  }
+});
+
+// Slider update
+const slider    = document.getElementById('slider');
+const fill      = document.getElementById('sliderFill');
+const sliderLbl = document.getElementById('sliderLabel');
+const sKmin     = document.getElementById('sKmin');
+const sTheta    = document.getElementById('sTheta');
+const sNpts     = document.getElementById('sNpts');
+const sDelta    = document.getElementById('sDelta');
+
+function update(idx){
+  const kMin  = DECADES[idx];
+  const theta = THETAS[idx];
+  const npts  = NPTS[idx];
+  const delta = theta - FULL;
+  const pct   = idx / (DECADES.length-1) * 100;
+
+  fill.style.width = pct + '%';
+  sliderLbl.textContent = `10^${kMin} → 10^18`;
+  sKmin.textContent     = `10^${kMin}`;
+  sTheta.textContent    = theta.toFixed(6);
+  sNpts.textContent     = npts.toLocaleString();
+  sDelta.textContent    = (delta>=0?'+':'') + delta.toFixed(6);
+
+  // Color the theta value
+  sTheta.className = 'val ' + (theta > 0.251 ? 'above' : theta > 0.250 ? 'at' : 'below');
+
+  // Update chart: split into included / excluded
+  const included = DECADES.map((k,i)=>({x:k,y:THETAS[i]})).filter((_,i)=>i>=idx);
+  const excluded = DECADES.map((k,i)=>({x:k,y:THETAS[i]})).filter((_,i)=>i<idx);
+  const activePoint = [{x:kMin, y:theta}];
+
+  chart.data.datasets[0].data = included;
+  chart.data.datasets[1].data = excluded;
+  chart.data.datasets[5].data = activePoint;
+
+  // Shade the npts bar to show excluded region
+  chart.data.datasets[2].data = DECADES.map((k,i)=>({
+    x:k, y:i>=idx?NPTS[i]:0
+  }));
+
+  chart.update('none');
+}
+
+slider.addEventListener('input', ()=> update(parseInt(slider.value)));
+update(0);
+</script>
+</body>
+</html>
