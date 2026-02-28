@@ -165,10 +165,10 @@ No claim is made that the true limit is exactly 0.25 — convergence is slow and
 
 ```bash
 # With libquadmath (recommended for n > 10⁹):
-g++ -O2 -fopenmp -o delta main.cpp -lm -lquadmath
+g++ -O3 -fopenmp -o delta main.cpp -lm -lquadmath
 
 # Without libquadmath (precision degrades above n ~ 10⁹):
-g++ -O2 -DNO_QUADMATH -fopenmp -o delta main.cpp -lm
+g++ -O3 -DNO_QUADMATH -fopenmp -o delta main.cpp -lm
 ```
 
 **delta.cpp** (Gauss circle / b1 counter):
