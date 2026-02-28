@@ -1,0 +1,558 @@
+\documentclass[12pt]{article}
+\usepackage{amsmath, amsthm, amssymb, mathtools}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{booktabs}
+
+\geometry{margin=1.2in}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{remark}[theorem]{Remark}
+
+\title{\textbf{From \texttt{b1\_sqrt} to the Gauss Circle Problem}\\[0.5em]
+\large A Perturbative Dirichlet Series Derivation\\[0.5em]
+\normalsize Companion to: \emph{From \texttt{a\_hoying} to the Dirichlet Divisor Problem}}
+\author{Personal Notes}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+%-----------------------------------------------------------------------
+\section{Setup: The Sequence and Its Exact Formula}
+%-----------------------------------------------------------------------
+
+\subsection{The Gauss Circle Problem}
+
+Let $r_2(k)$ denote the number of ways to write $k$ as a sum of two
+integer squares (counting signs and order):
+\[
+    r_2(k) = \#\{(x,y)\in\mathbb{Z}^2 : x^2 + y^2 = k\}.
+\]
+Define the \emph{lattice point count}:
+\[
+    A(N) = \sum_{k=1}^{N} r_2(k)
+    = \#\{(x,y)\in\mathbb{Z}^2 : 1 \le x^2+y^2 \le N\},
+\]
+the number of non-origin lattice points in the disk of radius $\sqrt{N}$.
+The Gauss circle problem asks for the size of the error in the approximation
+$A(N) \approx \pi N$.
+
+\subsection{The Sequence \texorpdfstring{$b_1(N)$}{b1(N)}}
+
+The code computes:
+\begin{equation}
+    b_1(N) = \sum_{k=1}^{N-1}(N-k)\,r_2(k).
+    \label{eq:b1def}
+\end{equation}
+Via the character representation $r_2(k) = 4\sum_{d|k}\chi_{-4}(d)$
+(where $\chi_{-4}$ is the non-principal Dirichlet character mod~4,
+given by $\chi_{-4}(n) = 1,0,-1,0$ for $n\equiv 1,2,3,0\pmod{4}$),
+the code evaluates $b_1(N)$ in $O(\sqrt{N})$ time via hyperbola blocking
+over the prefix sums
+\[
+    C(x) = \sum_{n=1}^{x}\chi_{-4}(n), \qquad
+    W(x) = \sum_{n=1}^{x} n\,\chi_{-4}(n).
+\]
+The key exact formula used is:
+\begin{equation}
+    b_1(N) = 4\sum_{d=1}^{N-1}\chi_{-4}(d)
+    \left[N\left\lfloor\frac{N-1}{d}\right\rfloor
+    - d\cdot\frac{\lfloor\frac{N-1}{d}\rfloor
+    \bigl(\lfloor\frac{N-1}{d}\rfloor+1\bigr)}{2}\right].
+    \label{eq:b1formula}
+\end{equation}
+
+\subsection{The Abel Summation Identity}
+
+\begin{proposition}[Exact identity]
+\label{prop:abelid}
+\[
+    b_1(N) = \sum_{m=1}^{N-1} A(m).
+\]
+\end{proposition}
+
+\begin{proof}
+By discrete Abel summation (summation by parts):
+\[
+    \sum_{k=1}^{N-1}(N-k)\,r_2(k)
+    = \sum_{k=1}^{N-1} r_2(k)\sum_{m=k}^{N-1}1
+    = \sum_{m=1}^{N-1}\sum_{k=1}^{m} r_2(k)
+    = \sum_{m=1}^{N-1} A(m). \qedhere
+\]
+\end{proof}
+
+An immediate corollary is that $A(N) = b_1(N+1) - b_1(N)$, which the
+code uses in \texttt{--delta} mode to compute $A(N)$ exactly.
+
+%-----------------------------------------------------------------------
+\section{The Asymptotic Formula for \texorpdfstring{$b_1(N)$}{b1(N)}}
+%-----------------------------------------------------------------------
+
+\subsection{Gauss Circle Error}
+
+The classical result of Gauss gives:
+\begin{equation}
+    A(N) = \pi N + \Delta_A(N), \qquad \Delta_A(N) = O(N^\theta),
+    \label{eq:Aasym}
+\end{equation}
+where $\theta \le 131/416 \approx 0.3149$ (Huxley 2003) and the
+conjecture $\theta = 1/4$ is the Gauss circle conjecture (Hardy--Landau).
+
+Note: since $A$ excludes the origin,
+$\Delta_A(N) = \Delta_L(N) - 1$ where $\Delta_L$ is the standard Gauss
+circle error for the full lattice count including origin.
+
+\subsection{Summing the Error}
+
+From Proposition~\ref{prop:abelid}:
+\begin{align}
+    b_1(N)
+    &= \sum_{m=1}^{N-1} A(m)
+    = \sum_{m=1}^{N-1}\bigl[\pi m + \Delta_A(m)\bigr] \notag\\
+    &= \pi\cdot\frac{(N-1)N}{2} + \sum_{m=1}^{N-1}\Delta_A(m).
+    \label{eq:b1split}
+\end{align}
+
+\subsection{The Mean of \texorpdfstring{$\Delta_A$}{Delta\_A}}
+
+\begin{proposition}
+\label{prop:meanDelta}
+$\displaystyle\sum_{m=1}^{N-1}\Delta_A(m) = \left(\frac{\pi}{2}-1\right)N + E_3(N)$,
+where $E_3(N) = O(N^{1/2+\theta})$ is the oscillatory residual.
+\end{proposition}
+
+\begin{proof}[Sketch]
+Since $\Delta_A(m) = \Delta_L(m) - 1$, summing the $-1$ terms gives $-(N-1)$.
+The sum of $\Delta_L(m)$ over $m \le N$ has mean
+$\sim (\pi/2 - 1)N + O(N^{1/2+\theta})$ by the Hardy--Voronoï expansion
+and stationary phase (see Section~\ref{sec:stationary}).
+This is confirmed empirically: at $N = 10^{18}$ the coefficient of $N$
+is measured as $0.570785\ldots$ vs.\ the theoretical
+$\pi/2 - 1 = 0.570796\ldots$ (agreement to $5$ significant figures).
+\end{proof}
+
+\subsection{The Full Three-Term Asymptotic}
+
+Substituting Proposition~\ref{prop:meanDelta} into \eqref{eq:b1split}:
+\begin{align}
+    b_1(N)
+    &= \frac{\pi N(N-1)}{2} + \left(\frac{\pi}{2}-1\right)N + E_3(N) \notag\\
+    &= \frac{\pi}{2}N^2 - \frac{\pi}{2}N + \frac{\pi}{2}N - N + E_3(N) \notag\\[4pt]
+    &\phantom{=}\text{[the $\pi N/2$ terms combine]}\\[4pt]
+    \Aboxed{b_1(N) &= \frac{\pi}{2}N^2 - N + E_3(N).}
+    \label{eq:b1asym}
+\end{align}
+
+\begin{remark}
+The asymptotic $\frac{\pi}{2}N^2 - N$ is computed in the code as
+\texttt{asym\_f128(N) = N*((pi/2)*N - 1)} using \texttt{\_\_float128}
+arithmetic to avoid catastrophic cancellation: at $N = 10^{18}$,
+$b_1(N) \sim 1.57\times 10^{36}$ while $E_3 \sim 10^{13}$,
+requiring $\sim 23$ digits of headroom.
+\end{remark}
+
+Define the oscillatory error:
+\begin{equation}
+    E_3(N) := b_1(N) - \frac{\pi}{2}N^2 + N.
+    \label{eq:E3def}
+\end{equation}
+The Gauss circle conjecture is equivalent to $E_3(N) = O(N^{3/4+\varepsilon})$.
+
+%-----------------------------------------------------------------------
+\section{The Dominant Oscillatory Mode and Stationary Phase}
+\label{sec:stationary}
+%-----------------------------------------------------------------------
+
+\subsection{Hardy--Voronoï Expansion}
+
+The Hardy--Voronoï expansion of the Gauss circle error gives:
+\begin{equation}
+    \Delta_L(m) \sim \frac{4}{\pi} m^{1/4}
+    \sum_{j=1}^{\infty} \frac{r_2(j)}{j^{3/4}}
+    \cos\!\left(2\pi\sqrt{jm} - \frac{\pi}{4}\right),
+    \label{eq:HV}
+\end{equation}
+where the dominant ($j=1$) term is:
+\begin{equation}
+    \Delta_L(m) \;\underset{m\to\infty}{\sim}\;
+    \frac{4}{\pi}\,m^{1/4}\cos\!\left(2\pi\sqrt{m}-\frac{\pi}{4}\right).
+    \label{eq:dominant}
+\end{equation}
+
+\subsection{Summing by Stationary Phase}
+
+To evaluate $E_3(N) \approx \sum_{m=1}^{N-1}\Delta_L(m)$, approximate
+the sum by an integral with the substitution $u = \sqrt{m}$,
+$m = u^2$, $dm = 2u\,du$:
+\begin{align}
+    E_3(N)
+    &\approx \frac{4}{\pi}\int_1^{\sqrt{N}} u^{1/2}
+    \cos\!\left(2\pi u - \frac{\pi}{4}\right) 2u\,du
+    = \frac{8}{\pi}\int_1^{\sqrt{N}} u^{3/2}
+    \cos\!\left(2\pi u - \frac{\pi}{4}\right) du.
+    \label{eq:statint}
+\end{align}
+Integrate by parts once (stationary phase):
+\begin{align}
+    \int^X u^{3/2}\cos(2\pi u + \phi)\,du
+    &= \frac{u^{3/2}}{2\pi}\sin(2\pi u + \phi)\Big|^X
+    - \frac{3}{4\pi}\int^X u^{1/2}\sin(2\pi u + \phi)\,du.
+    \label{eq:ibp}
+\end{align}
+The boundary term dominates:
+\begin{equation}
+    \boxed{E_3(N) \;\sim\;
+    \frac{4}{\pi^2}\,N^{3/4}
+    \sin\!\left(2\pi\sqrt{N} - \frac{5\pi}{4}\right)
+    + O\!\left(N^{1/4}\right).}
+    \label{eq:E3dominant}
+\end{equation}
+
+The amplitude $\frac{4}{\pi^2}N^{3/4} \approx 1.28\times 10^{13}$ at
+$N = 10^{18}$.  The code observes a peak $|E_3| \approx 1.93\times 10^{13}$
+at $N \approx 9.33\times 10^{17}$, consistent with multi-harmonic
+constructive interference from the $j \ge 2$ terms in \eqref{eq:HV}.
+
+\subsection{The Stationary-Phase Exponent Shift}
+
+Equation \eqref{eq:E3dominant} shows that the exponent in $E_3$ is
+$3/4 = \theta + 1/2$ where $\theta = 1/4$.  In general:
+
+\begin{proposition}[Stationary-phase shift]
+\label{prop:shift}
+If $\Delta_L(N) = O(N^{\theta})$ then
+$E_3(N) = O(N^{\theta + 1/2})$.
+Equivalently, the OLS slope $\alpha$ of $\log|E_3|$ vs.\ $\log N$
+relates to the Gauss circle exponent by:
+\[
+    \alpha = \theta + \frac{1}{2}, \qquad \theta = \alpha - \frac{1}{2}.
+\]
+\end{proposition}
+
+This is why the code's \texttt{--delta} mode (which measures $\Delta$
+directly) reads $\theta$ without any correction, while the integral
+mode measures $\alpha = \theta + 1/2$ and must subtract $1/2$.
+
+%-----------------------------------------------------------------------
+\section{The Perturbation Series}
+%-----------------------------------------------------------------------
+
+\subsection{The Character Structure}
+
+The analogue of the oscillatory residual from the divisor-problem notes is
+built from the $\chi_{-4}$ character.  Write $n = qi + r$ with
+$r \in \{0,\ldots,i-1\}$.  The oscillatory part of the $i$-th block in
+\eqref{eq:b1formula} is:
+\begin{equation}
+    \delta B_i(N) = 4\chi_{-4}(r)\cdot\frac{r(i-r)}{i}
+    \quad \text{(schematically)}.
+    \label{eq:dB}
+\end{equation}
+The crucial difference from the divisor case is the factor $\chi_{-4}(r)$:
+only $r \equiv 1,3\pmod{4}$ contribute, with signs $+1,-1$ respectively.
+
+\subsection{The Dirichlet Series}
+
+Defining $e(N) = E_3(N)$ and
+$F_{\text{Gauss}}(s) = \sum_{N=1}^\infty e(N)/N^s$,
+the same sum-swap and Euclidean division steps as in the divisor problem give:
+\begin{equation}
+    F_{\text{Gauss}}(s) = \sum_{i=1}^\infty \frac{1}{i}
+    \sum_{q=i}^\infty \sum_{r=0}^{i-1}
+    \frac{\chi_{-4}(r)\cdot r(i-r)}{(qi+r)^s}.
+    \label{eq:FGswap}
+\end{equation}
+
+\subsection{Perturbation Expansion}
+
+Factor out $(qi)^{-s}$ and expand $(1 + r/(qi))^{-s}$ exactly as before:
+\begin{equation}
+    F_{\text{Gauss}}(s) = \sum_{i=1}^\infty \sum_{k=0}^\infty
+    (-1)^k \binom{s+k-1}{k} \frac{P_k^{\chi}(i)}{i^{s+k+1}}
+    \sum_{q=i}^\infty q^{-(s+k)},
+    \label{eq:FGpert}
+\end{equation}
+where the \emph{character perturbation polynomials} are:
+\begin{equation}
+    P_k^{\chi}(i) = \sum_{r=0}^{i-1} \chi_{-4}(r)\cdot r(i-r)\cdot r^k
+    = i\,S_{k+1}^{\chi}(i-1) - S_{k+2}^{\chi}(i-1),
+    \label{eq:Pkchi}
+\end{equation}
+and $S_m^{\chi}(n) = \sum_{r=0}^{n} r^m \chi_{-4}(r)$ are
+\emph{character power sums}.  Since $\chi_{-4}$ has period 4,
+these reduce to Bernoulli-type sums over a period:
+\begin{align}
+    S_1^{\chi}(4q+r_0)
+    &= q\bigl[(4q+1)-(4q+3)\bigr] + \text{partial period} \notag\\
+    &= -2q + \text{(explicit boundary terms)}.
+\end{align}
+\begin{remark}[Quasi-polynomial structure]
+\label{rem:quasipoly}
+Unlike the divisor case, $P_k^{\chi}(i)$ is \emph{not} a polynomial in $i$
+with fixed rational coefficients.  Because $\chi_{-4}$ has period~4, the
+character power sums $S_m^{\chi}(n) = \sum_{r=0}^{n}r^m\chi_{-4}(r)$ are
+\emph{quasi-polynomials} in $n$: polynomials whose coefficients depend on
+$n \bmod 4$.  Consequently $P_k^{\chi}(i)$ is a quasi-polynomial of degree
+$k+2$ in $i$, with coefficients that are piecewise-constant in $i \bmod 4$.
+
+This does not break the argument.  Summing over $i$ in \eqref{eq:FGpert}
+splits into the four residue classes $i \bmod 4$, each contributing a
+genuine polynomial piece; the result is a finite linear combination of
+$L$-functions twisted by those residue classes.
+\end{remark}
+
+Each $P_k^{\chi}(i)$ is a quasi-polynomial of degree $k+2$ in $i$ with
+coefficients depending on $i \bmod 4$.  Explicitly for $k=0$:
+\begin{equation}
+    P_0^{\chi}(i) = \begin{cases}
+        \tfrac{i^3}{8} + O(i^2) & i \equiv 0 \pmod{4},\\
+        \tfrac{i^3 - 4i}{8}     & i \equiv 1 \pmod{4},\\
+        \tfrac{i^3}{8} + O(i^2) & i \equiv 2 \pmod{4},\\
+        \tfrac{i^3 - 4i}{8}     & i \equiv 3 \pmod{4},
+    \end{cases}
+    \label{eq:P0chi}
+\end{equation}
+with uniform leading coefficient $i^3/8$.
+
+\subsection{The Dominant $L$-Function}
+
+Summing over $i$, the $k=0$ term is:
+\begin{equation}
+    F_0^{\text{Gauss}}(s) = L(s,\chi_{-4}) \cdot Q_0^{\chi}(s),
+    \label{eq:FGmain}
+\end{equation}
+where $L(s,\chi_{-4}) = \sum_{n=1}^\infty \chi_{-4}(n)/n^s
+= 1 - 1/3^s + 1/5^s - \cdots$ is the Dirichlet $L$-function of $\chi_{-4}$,
+and
+\begin{equation}
+    Q_0^{\chi}(s) = \sum_{i=1}^\infty \frac{P_0^{\chi}(i)}{i^{s+1}}
+    \label{eq:Q0chi}
+\end{equation}
+is a finite linear combination of $L$-functions at nearby arguments,
+analytic and generically nonzero in the strip $3/4 < \mathrm{Re}(s) < 2$.
+
+%-----------------------------------------------------------------------
+\section{Truncation: Which Terms Are Negligible?}
+%-----------------------------------------------------------------------
+
+The size argument is identical to the divisor problem.  The $k$-th term
+contributes $e_k(N) = O(N^{1/2+\theta-k/2})$, giving:
+
+\begin{center}
+\begin{tabular}{cccc}
+\toprule
+$k$ & Size of $e_k(N)$ & Abscissa & Under Huxley ($\theta < 1/2$)\\
+\midrule
+$0$ & $O(N^{1/2+\theta})$ & $1/2+\theta$ & $\approx 0.815$\\
+$1$ & $O(N^{\theta})$ & $\theta$ & $\approx 0.315$\\
+$2$ & $O(N^{\theta-1/2})$ & $\theta-1/2$ & $< 0$\\
+$k\ge 2$ & $O(N^{\theta-1/2})$ & $< 0$ & converges everywhere\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{lemma}[Abscissa stability under analytic perturbation]
+\label{lem:abscissa}
+Let $F(s) = F_0(s) + H(s)$ where $H(s)$ converges absolutely for
+$\mathrm{Re}(s) > \alpha$.  If $\sigma_c(F_0) > \alpha$, then
+$\sigma_c(F) = \sigma_c(F_0)$.
+\end{lemma}
+
+\begin{proof}
+On $\mathrm{Re}(s) > \alpha$, $H$ converges absolutely, hence conditionally.
+On $\mathrm{Re}(s) > \sigma_c(F_0)$, $F_0$ converges conditionally.  Their
+sum $F$ therefore converges conditionally on
+$\mathrm{Re}(s) > \max(\sigma_c(F_0),\alpha) = \sigma_c(F_0)$.
+For the lower bound: on $\alpha < \mathrm{Re}(s) \le \sigma_c(F_0)$,
+write $F_0 = F - H$; conditional convergence of $F$ would force conditional
+convergence of $F_0$, contradicting the definition of $\sigma_c(F_0)$.
+\end{proof}
+
+\begin{proposition}
+\label{prop:tailconv}
+Under Huxley's proven bound $\theta < 1/2$, the $k \ge 2$ tail
+$R(s) = \sum_{k\ge 2}(\cdots)$ is absolutely convergent for all
+$\mathrm{Re}(s) > 0$.  By Lemma~\ref{lem:abscissa} it does not affect the
+abscissa of $F_{\mathrm{Gauss}}$, which is therefore determined by
+$F_0^{\mathrm{Gauss}} + F_1^{\mathrm{Gauss}}$ alone.
+\end{proposition}
+
+\begin{theorem}[Main reduction, Gauss circle]
+\label{thm:Gaussmain}
+The series $F_{\mathrm{Gauss}}(s)$ decomposes as
+$F_0^{\mathrm{Gauss}} + F_1^{\mathrm{Gauss}} + R(s)$, where:
+\begin{equation}
+    \boxed{F_0^{\mathrm{Gauss}}(s) = L(s,\chi_{-4})\cdot Q_0^{\chi}(s),}
+    \label{eq:Gaussbox}
+\end{equation}
+$F_1^{\mathrm{Gauss}}(s)$ is analytic for $\mathrm{Re}(s) > 3/4$, and
+$R(s)$ is absolutely convergent for $\mathrm{Re}(s) > 0$
+(Proposition~\ref{prop:tailconv}).  Consequently
+$\sigma_0 \le 1/2 + \theta_{\mathrm{Gauss}}$, with the bound coming from
+$F_0^{\mathrm{Gauss}}$.
+\end{theorem}
+
+\begin{remark}[The cancellation gap, Gauss version]
+\label{rem:gapG}
+The identification $\sigma_0 = \sigma_c(F_0^{\mathrm{Gauss}})$ is morally
+correct but not automatic: $F_1^{\mathrm{Gauss}}$ converges only
+conditionally in the strip $3/4 < \mathrm{Re}(s) < 1/2+\theta$, so
+Lemma~\ref{lem:abscissa} does not apply to it.  Cancellation between the
+$k=0$ and $k=1$ layers could in principle shift $\sigma_0$ strictly left of
+$\sigma_c(F_0^{\mathrm{Gauss}})$.
+
+\textbf{Hardy's lower bound.}  This leftward shift is bounded below by a
+proven theorem: Hardy (1915) established the $\Omega$-result
+$E_3(N) = \Omega(N^{1/4})$, which forces $\sigma_0 \ge 3/4$.
+Cancellation can therefore only place $\sigma_0$ inside the interval
+$[3/4,\,\sigma_c(F_0^{\mathrm{Gauss}}))$, not below $3/4$.  The gap is
+solely about whether $\sigma_0 = \sigma_c(F_0^{\mathrm{Gauss}})$ exactly, or
+$\sigma_0$ lies strictly in that interval with $\theta_{\mathrm{Gauss}} < \mu_{\chi_{-4}}(3/4)$.
+\end{remark}
+
+%-----------------------------------------------------------------------
+\section{Reduction to a Contour Integral}
+%-----------------------------------------------------------------------
+
+\subsection{Perron's Formula}
+
+Exactly as in the divisor problem, Perron's formula gives:
+\begin{equation}
+    \sum_{N\le x} E_3(N) = \frac{1}{2\pi i}
+    \int_{\sigma-i\infty}^{\sigma+i\infty}
+    F_{\mathrm{Gauss}}(s)\,\frac{x^s}{s}\,ds.
+    \label{eq:Gaussperron}
+\end{equation}
+Since $Q_0^{\chi}$ is analytic and bounded on the integration line,
+the integral reduces to a Fourier transform of
+$L(\sigma+it,\chi_{-4})/(\sigma+it)$ at frequency $\log x$.
+
+\subsection{The Final Statement}
+
+\begin{definition}[Lindelöf $\mu$-function for $L$-functions]
+\label{def:lindelofL}
+For a Dirichlet $L$-function $L(s,\chi)$, define
+$\mu_\chi(\sigma) := \inf\{\alpha \ge 0 : L(\sigma+it,\chi) = O(|t|^\alpha)\}$.
+\end{definition}
+
+\begin{theorem}[Gauss circle and $L$-function growth]
+\label{thm:Gaussfinal}
+The derivation establishes the upper bound
+\begin{equation}
+    \theta_{\mathrm{Gauss}} \;\le\; \mu_{\chi_{-4}}\!\left(\tfrac{3}{4}\right),
+    \label{eq:thetaGauss}
+\end{equation}
+where $\mu_{\chi_{-4}}$ is the Lindel\"of $\mu$-function for $L(s,\chi_{-4})$
+(Definition~\ref{def:lindelofL}).  Explicitly: the Perron integral
+\eqref{eq:Gaussperron}, dominated by $F_0^{\mathrm{Gauss}}(s)$, converges
+for $\mathrm{Re}(s) > 1/2+\mu_{\chi_{-4}}(3/4)$ and yields
+$\sum_{N\le x}E_3(N) = O(x^{1/2+\mu_{\chi_{-4}}(3/4)+\varepsilon})$.
+
+The classical equality $\theta_{\mathrm{Gauss}} = \mu_{\chi_{-4}}(3/4)$ is
+known in the literature, but the reverse inequality
+$\theta_{\mathrm{Gauss}} \ge \mu_{\chi_{-4}}(3/4)$ requires a Tauberian
+argument controlling the cancellation between the $k=0$ and $k=1$ layers —
+the step identified as open in Remark~\ref{rem:gapG}.  This derivation does
+not carry out that step.  Accordingly, the correct statement derived here is:
+\[
+    \boxed{\theta_{\mathrm{Gauss}} \;\le\; \mu_{\chi_{-4}}\!\left(\tfrac{3}{4}\right),}
+\]
+with equality conditional on closing the cancellation gap.
+
+Note: Hardy's $\Omega$-theorem ($E_3(N)=\Omega(N^{1/4})$) gives the
+independent lower bound $\theta_{\mathrm{Gauss}} \ge 1/4$, hence also
+$\mu_{\chi_{-4}}(3/4) \ge 1/4$.  This bounds $\sigma_0$ below by $3/4$ but
+does not resolve the question of whether $\sigma_0 = \sigma_c(F_0^{\mathrm{Gauss}})$.
+\end{theorem}
+
+The conjecture $\theta_{\mathrm{Gauss}} = 1/4$ is equivalent to:
+\begin{quote}
+    \emph{$L(3/4+it,\chi_{-4})$ remains sub-polynomially bounded in $|t|$.}
+\end{quote}
+
+%-----------------------------------------------------------------------
+\section{The Sibling Relationship with the Divisor Problem}
+%-----------------------------------------------------------------------
+
+The two problems are exact siblings:
+
+\begin{center}
+\renewcommand{\arraystretch}{1.4}
+\begin{tabular}{lll}
+\toprule
+& \textbf{Divisor problem} & \textbf{Gauss circle}\\
+\midrule
+Exact sequence & $a(n) = n\,D(n-1)-\sigma_\tau(n-1)$ & $b_1(N) = \sum_{m<N}A(m)$\\
+Building block & $\tau(n) = \sum_{d|n}1$ & $r_2(n) = 4\sum_{d|n}\chi_{-4}(d)$\\
+Character & trivial ($1$) & $\chi_{-4}$ (period 4)\\
+Main term & $\frac{n^2}{2}\log n + (\gamma-\frac{3}{4})n^2$ & $\frac{\pi}{2}N^2 - N$\\
+Error & $e(n) = O(n^{1/2+\theta})$ & $E_3(N) = O(N^{1/2+\theta})$\\
+$L$-function & $\zeta(s)$ & $L(s,\chi_{-4})$\\
+Critical line & $\mathrm{Re}(s)=1/2$ & $\mathrm{Re}(s)=1/2$\\
+Conjecture & $\theta = 1/4$ ($\sigma_0 = 3/4$) & $\theta = 1/4$ ($\sigma_0 = 3/4$)\\
+Huxley bound & $\theta \le 131/416$ & $\theta \le 131/416$\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Both problems reduce to the same question — how far left into the critical
+strip does the relevant $L$-function remain well-behaved in the vertical
+direction — and both are controlled by the same van der Corput exponential
+sum technology.  The identical Huxley bound is not a coincidence: the
+exponent pair machinery does not distinguish between $\zeta$ and
+$L(\cdot,\chi_{-4})$ at this level of precision.
+
+\subsection{The Generalisation}
+
+For any primitive Dirichlet character $\chi$, define
+\[
+    b_\chi(N) = \sum_{k=1}^{N-1}(N-k)\,\left(\sum_{d|k}\chi(d)\right),
+\]
+and the analogous error $E_\chi(N)$.  The same derivation gives
+$F_\chi(s) \approx L(s,\chi)\cdot Q_0^\chi(s)$,
+and $\theta_\chi$ satisfies $\theta_\chi \le \mu_\chi(3/4)$ (upper bound
+from the Perron integral), with $\theta_\chi \ge 1/4$ from the
+$\Omega$-theorem for each such character problem.  The equality
+$\theta_\chi = \mu_\chi(3/4)$ holds modulo the same cancellation gap.
+There is one such problem for each $L$-function; the obstruction in every
+case is sub-polynomial vertical growth of $L(\cdot,\chi)$ near
+$\mathrm{Re}(s) = 3/4$, bounded below by the same Hardy floor.
+
+%-----------------------------------------------------------------------
+\section{The Hierarchy of Implications}
+%-----------------------------------------------------------------------
+
+\[
+    \text{RH for }L(\cdot,\chi_{-4})
+    \implies \text{Lindelöf: }\mu(1/2)=0
+    \implies \mu(3/4)=0
+    \implies \theta_{\mathrm{Gauss}} = \tfrac{1}{4}.
+\]
+
+The Lindelöf hypothesis for $L(s,\chi_{-4})$ states
+$L(1/2+it,\chi_{-4}) = O(|t|^\varepsilon)$ for all $\varepsilon > 0$.
+This would imply $\theta_{\mathrm{Gauss}} = 1/4$ immediately.
+Current best (Huxley): $\theta_{\mathrm{Gauss}} \le 131/416 \approx 0.315$,
+empirically $\approx 0.263$ at $N = 10^{18}$.
+
+\bigskip
+\hrule
+\bigskip
+
+\noindent\textit{%
+Both walls are the same wall.
+One is labelled $\zeta$; the other is labelled $L(\cdot,\chi_{-4})$.
+Neither is coming down today.
+}
+
+\end{document}

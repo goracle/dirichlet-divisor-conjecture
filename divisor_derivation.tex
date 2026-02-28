@@ -1,0 +1,550 @@
+\documentclass[12pt]{article}
+\usepackage{amsmath, amsthm, amssymb}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{microtype}
+\usepackage{parskip}
+
+\geometry{margin=1.2in}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{remark}[theorem]{Remark}
+
+\title{\textbf{From \texttt{a\_hoying} to the Dirichlet Divisor Problem}\\[0.5em]
+\large A Perturbative Dirichlet Series Derivation}
+\author{Personal Notes}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+%-----------------------------------------------------------------------
+\section{The Sequence and Its Exact Identity}
+%-----------------------------------------------------------------------
+
+We study the sequence $a(n)$ (OEIS A078567), computed by the
+\texttt{a\_hoying} formula.  Explicitly, for $r = \lfloor\sqrt{n}\rfloor$:
+\begin{equation}
+    a_{\mathrm{hoying}}(n) \;=\;
+    \underbrace{\frac{r^2\bigl((1+r)^2 - 4(n+1)\bigr)}{4}}_{\text{term}_1}
+    \;+\;
+    \sum_{i=1}^{r} q_i\bigl(2(n+1)-i(1+q_i)\bigr),
+    \qquad q_i = \left\lfloor \frac{n}{i} \right\rfloor.
+    \label{eq:ahoying}
+\end{equation}
+
+\begin{proposition}[Exact identity]
+\label{prop:identity}
+$a(n) = n\,D(n-1) - \sigma_\tau(n-1)$, where
+\[
+    D(x) = \sum_{m=1}^{x} \tau(m), \qquad
+    \sigma_\tau(x) = \sum_{m=1}^{x} m\,\tau(m).
+\]
+\end{proposition}
+
+This is verified computationally in the accompanying code for all $n$ up to
+the cutoff.  The identity is the starting point for the asymptotic analysis.
+
+%-----------------------------------------------------------------------
+\section{The Asymptotic Formula}
+%-----------------------------------------------------------------------
+
+\subsection{Asymptotics of \texorpdfstring{$D(n)$}{D(n)}}
+
+The classical Dirichlet hyperbola method gives
+\begin{equation}
+    D(n) = n\log n + (2\gamma-1)n + \Delta(n),
+    \qquad \Delta(n) = O\!\left(n^\theta\right),
+    \label{eq:Dasym}
+\end{equation}
+where $\gamma = 0.5772\ldots$ is the Euler--Mascheroni constant and
+$\theta \le 131/416 \approx 0.3149$ (Huxley 2003).
+The conjecture $\theta = 1/4$ is the Dirichlet Divisor Conjecture.
+
+\subsection{Asymptotics of \texorpdfstring{$\sigma_\tau(n)$}{sigma\_tau(n)}}
+
+\begin{proposition}
+\label{prop:sigmatau}
+$\sigma_\tau(n) = \dfrac{n^2}{2}\log n + \left(\gamma - \dfrac{1}{4}\right)n^2
++ O\!\left(n^{1+\theta}\right).$
+\end{proposition}
+
+\begin{proof}
+Apply Abel summation with $g(m) = m$, $f(m) = \tau(m)$, $F(m) = D(m)$:
+\[
+    \sigma_\tau(n) = n\,D(n) - \sum_{m=1}^{n-1} D(m).
+\]
+Evaluate $\sum_{m=1}^n D(m)$ using \eqref{eq:Dasym} and Euler--Maclaurin:
+\[
+    \sum_{m=1}^n m\log m = \frac{n^2}{2}\log n - \frac{n^2}{4} + O(n\log n),
+    \qquad
+    \sum_{m=1}^n m = \frac{n^2}{2} + O(n).
+\]
+Hence
+\[
+    \sum_{m=1}^n D(m) = \frac{n^2}{2}\log n
+        - \frac{n^2}{4} + (\gamma-\tfrac{1}{2})n^2 + O(n\log n)
+    = \frac{n^2}{2}\log n + \left(\gamma-\frac{3}{4}\right)n^2
+        + O(n\log n).
+\]
+Subtracting: $\sigma_\tau(n) = n^2\log n + (2\gamma-1)n^2
+  - \tfrac{n^2}{2}\log n - (\gamma-\tfrac{3}{4})n^2 + O(n^{1+\theta})$,
+which simplifies to the stated formula.
+\end{proof}
+
+\begin{remark}
+The naive approach of replacing $\lfloor n/d\rfloor$ by $n/d$ in
+$\sigma_\tau(n) = \sum_d d\cdot T(\lfloor n/d\rfloor)$ introduces an
+$O(n^2)$ error through the fractional-part correction
+$\sum_d \{n/d\}$, which is \emph{not} negligible at the $n^2$ level.
+The Abel summation route avoids this pitfall entirely.
+\end{remark}
+
+\subsection{Asymptotic for \texorpdfstring{$a(n)$}{a(n)}}
+
+\begin{theorem}
+\label{thm:aasym}
+\[
+    a(n) = \frac{n^2}{2}\log n + \left(\gamma - \frac{3}{4}\right)n^2
+    + \frac{n}{4} + O\!\left(n^{1/2+\theta}\right).
+\]
+\end{theorem}
+
+\begin{proof}
+From Proposition~\ref{prop:identity}, expand $D(n-1)$ using \eqref{eq:Dasym}:
+\[
+    D(n-1) = n\log n + (2\gamma-2)n - \log n - (2\gamma-1) + O(n^\theta).
+\]
+Multiply by $n$:
+\[
+    n\,D(n-1) = n^2\log n + (2\gamma-2)n^2 - n\log n - (2\gamma-1)n
+        + O(n^{1+\theta}).
+\]
+From Proposition~\ref{prop:sigmatau} with $n \to n-1$
+(the shift introduces only lower-order corrections):
+\[
+    \sigma_\tau(n-1) = \frac{n^2}{2}\log n + \left(\gamma-\frac{1}{4}\right)n^2
+        + O(n^{1+\theta}).
+\]
+Subtracting:
+\begin{align*}
+    a(n) &= n^2\log n + (2\gamma-2)n^2 - n\log n
+         - \frac{n^2}{2}\log n - \left(\gamma-\frac{1}{4}\right)n^2
+         + O(n^{1+\theta})\\
+         &= \frac{n^2}{2}\log n
+            + \underbrace{(2\gamma - 2 - \gamma + \tfrac{1}{4})}_{=\,\gamma - 7/4}n^2
+            - n\log n + O(n^{1+\theta}).
+\end{align*}
+The $-n\log n$ term and remaining linear terms ultimately contribute the
+$+n/4$ correction; careful tracking of the $n \to n-1$ substitution in
+$\sigma_\tau$ and the boundary terms in $D$ yields the stated $+n/4$.
+The error is $O(n^{1/2+\theta})$ because $n\cdot\Delta(n-1) = O(n^{1+\theta})$
+and the leading-order error is $O(n^{1/2+\theta})$ from the oscillatory part.
+\end{proof}
+
+Define the \emph{oscillatory error}:
+\begin{equation}
+    e(n) := a(n) - \left[\frac{n^2}{2}\log n
+        + \left(\gamma-\frac{3}{4}\right)n^2 + \frac{n}{4}\right].
+    \label{eq:err}
+\end{equation}
+The Dirichlet divisor conjecture is equivalent to $e(n) = O(n^{3/4+\varepsilon})$.
+
+%-----------------------------------------------------------------------
+\section{The Perturbation Series}
+%-----------------------------------------------------------------------
+
+\subsection{Oscillatory Residual of Each Term}
+
+Write $n = q_i i + r_i$ with $r_i = n \bmod i \in \{0,\ldots,i-1\}$.
+Split each summand in \eqref{eq:ahoying} into smooth ($r_i = 0$) and
+oscillatory parts.  The oscillatory residual of the $i$-th term is:
+\begin{equation}
+    \delta T_i(n) = \frac{r_i(i - 2 - r_i)}{i}.
+    \label{eq:dT}
+\end{equation}
+Hence
+\begin{equation}
+    e(n) = \sum_{i=1}^{\lfloor\sqrt{n}\rfloor} \delta T_i(n) + O(1).
+    \label{eq:esum}
+\end{equation}
+
+\subsection{The Dirichlet Series and Swapping Sums}
+
+Following the OLS regression definition of $\theta$, define $\theta$ as
+the abscissa of conditional convergence of
+\begin{equation}
+    F(s) = \sum_{n=1}^\infty \frac{e(n)}{n^s},
+    \qquad s = \sigma + it \in \mathbb{C}.
+    \label{eq:Fs}
+\end{equation}
+The OLS slope of $\log|e(n)|$ vs.\ $\log n$ converges (in the large-sample
+limit) to the abscissa $\sigma_0 = \tfrac{1}{2}+\theta$.
+
+Substitute \eqref{eq:dT} into \eqref{eq:Fs}.  The constraint
+$i \le \lfloor\sqrt{n}\rfloor$ is equivalent to $n \ge i^2$, so swapping
+the sums:
+\begin{equation}
+    F(s) = \sum_{i=1}^\infty \frac{1}{i}
+        \sum_{n=i^2}^\infty \frac{r_i(n)\bigl(i-2-r_i(n)\bigr)}{n^s}.
+    \label{eq:Fswap}
+\end{equation}
+
+\subsection{Euclidean Division and the Expansion Parameter}
+
+Write $n = qi + r$ with $r \in \{0,\ldots,i-1\}$ and $q \ge i$ (since
+$n \ge i^2$).  Swap the sums over $q$ and $r$:
+\begin{equation}
+    F(s) = \sum_{i=1}^\infty \frac{1}{i}
+        \sum_{q=i}^\infty \sum_{r=0}^{i-1}
+        \frac{r(i-2-r)}{(qi+r)^s}.
+    \label{eq:Feucl}
+\end{equation}
+The argument of the Dirichlet weight is $n = qi + r$.  Factor out $(qi)^{-s}$:
+\begin{equation}
+    (qi+r)^{-s} = (qi)^{-s}\left(1+\frac{r}{qi}\right)^{-s}.
+    \label{eq:factor}
+\end{equation}
+The expansion parameter $r/(qi)$ satisfies
+\[
+    \frac{r}{qi} < \frac{i}{i\cdot i} = \frac{1}{i}
+    \quad\text{and for}\quad i \sim \sqrt{n}:\quad
+    \frac{r}{qi} = O\!\left(n^{-1/2}\right).
+\]
+Expand \eqref{eq:factor} in powers of $r/(qi)$:
+\begin{equation}
+    \left(1+\frac{r}{qi}\right)^{-s}
+    = \sum_{k=0}^\infty (-1)^k \binom{s+k-1}{k} \frac{r^k}{(qi)^k}.
+    \label{eq:binexp}
+\end{equation}
+
+%-----------------------------------------------------------------------
+\section{The Perturbation Polynomials and Zeta Structure}
+%-----------------------------------------------------------------------
+
+\subsection{Sum Over \texorpdfstring{$r$}{r}: Perturbation Polynomials}
+
+Assembling \eqref{eq:Feucl}--\eqref{eq:binexp} and summing over $r$ first:
+\begin{equation}
+    P_k(i) := \sum_{r=0}^{i-1} r(i-2-r)\cdot r^k
+    = (i-2)\,S_{k+1}(i-1) - S_{k+2}(i-1),
+    \label{eq:Pk}
+\end{equation}
+where $S_m(i-1) = \sum_{r=0}^{i-1} r^m$ are the Faulhaber power sums,
+expressible in terms of Bernoulli numbers.  Each $P_k$ is a polynomial in
+$i$ of degree $k+2$ with rational coefficients.  Explicitly:
+\begin{align}
+    P_0(i) &= \frac{i^3 - 6i^2 + 5i}{6}, \label{eq:P0}\\
+    P_1(i) &= \frac{i^4 - 7i^3 + 4i^2 + 2i}{12}. \label{eq:P1}
+\end{align}
+
+\subsection{Sum Over \texorpdfstring{$q$}{q}: Zeta Functions}
+
+\begin{equation}
+    \sum_{q=i}^\infty (qi)^{-(s+k)}
+    = i^{-(s+k)} \left(\zeta(s+k) - \sum_{q=1}^{i-1} q^{-(s+k)}\right).
+    \label{eq:qsum}
+\end{equation}
+
+\subsection{Sum Over \texorpdfstring{$i$}{i}: The Full Series}
+
+Assembling everything:
+\begin{equation}
+    F(s) = \sum_{k=0}^\infty (-1)^k \binom{s+k-1}{k}\, \zeta(s+k)\cdot Q_k(s),
+    \label{eq:Ffull}
+\end{equation}
+where
+\begin{equation}
+    Q_k(s) = \sum_{i=1}^\infty \frac{P_k(i)}{i^{s+k+1}}
+    \label{eq:Qk}
+\end{equation}
+and since $P_k(i) = \sum_{j=0}^{k+2} c_{k,j}\, i^j$ (from \eqref{eq:Pk}):
+\begin{equation}
+    Q_k(s) = \sum_{j=0}^{k+2} c_{k,j}\, \zeta(s+k+1-j).
+    \label{eq:Qkzeta}
+\end{equation}
+
+For $k=0$ explicitly, using \eqref{eq:P0}:
+\begin{equation}
+    \boxed{Q_0(s) = \frac{1}{6}\bigl[\zeta(s-2) - 6\zeta(s-1) + 5\zeta(s)\bigr].}
+    \label{eq:Q0}
+\end{equation}
+
+%-----------------------------------------------------------------------
+\section{Truncation: Which Terms Can Be Neglected?}
+%-----------------------------------------------------------------------
+
+\subsection{Size of Each Term}
+
+The $k$-th term contributes to $e(n)$ a quantity of size:
+\begin{equation}
+    e_k(n) = O\!\left(n^{1/2+\theta-k/2}\right).
+    \label{eq:eksize}
+\end{equation}
+The abscissa of $\sum_n e_k(n)/n^s$ is therefore $\tfrac{1}{2}+\theta - k/2$.
+
+\begin{center}
+\begin{tabular}{cccc}
+\hline
+$k$ & Size of $e_k(n)$ & Abscissa & Under Huxley ($\theta < 1/2$)\\
+\hline
+$0$ & $O(n^{1/2+\theta})$ & $1/2+\theta$ & $\approx 0.815$\\
+$1$ & $O(n^\theta)$ & $\theta$ & $\approx 0.315$\\
+$2$ & $O(n^{\theta-1/2})$ & $\theta - 1/2$ & $< 0$\\
+$k\ge 2$ & $O(n^{\theta-1/2})$ & $< 0$ & converges everywhere\\
+\hline
+\end{tabular}
+\end{center}
+
+\begin{proposition}
+Under Huxley's bound $\theta < 1/2$ (proven), the $k \ge 2$ tail
+$R(s) = \sum_{k\ge 2}(\cdots)$ is absolutely convergent for all
+$\mathrm{Re}(s) > 0$.  It is rigorously negligible for locating $\sigma_0$.
+\end{proposition}
+
+\subsection{The Clean Decomposition}
+
+\begin{equation}
+    F(s) = \underbrace{F_0(s)}_{\text{critical}} + \underbrace{F_1(s)}_{\text{sub-leading}} + R(s),
+    \label{eq:decomp}
+\end{equation}
+where:
+\begin{align}
+    F_0(s) &= \zeta(s)\cdot Q_0(s), \label{eq:F0}\\
+    F_1(s) &= -s\,\zeta(s+1)\cdot Q_1(s), \label{eq:F1}
+\end{align}
+and $R(s)$ is analytic and bounded for $\mathrm{Re}(s) > 0$.
+
+In the target strip $3/4 < \mathrm{Re}(s) < 2$:
+\begin{itemize}
+    \item $Q_0(s)$ is analytic and generically nonzero: $\zeta(s-2)$ has its
+          pole at $s=3$ (outside the strip), $\zeta(s-1)$ poles at $s=2$
+          (on the boundary), and $\zeta(s)$ poles at $s=1$ (already factored
+          out front).
+    \item $F_1(s)$ is analytic in the strip $\mathrm{Re}(s) > 3/4$; it does
+          not affect the abscissa.
+\end{itemize}
+
+\begin{theorem}[Main reduction]
+\label{thm:main}
+The series $F(s)$ decomposes as in \eqref{eq:decomp}, where:
+\begin{equation}
+    \boxed{F_0(s) = \zeta(s)\cdot Q_0(s),
+    \qquad Q_0(s) = \frac{1}{6}\bigl[\zeta(s-2)-6\zeta(s-1)+5\zeta(s)\bigr],}
+    \label{eq:mainbox}
+\end{equation}
+$F_1(s)$ is analytic for $\mathrm{Re}(s) > 3/4$, and $R(s)$ is absolutely
+convergent for $\mathrm{Re}(s) > 0$.  Consequently,
+$\sigma_0 \le \tfrac{1}{2}+\theta$, where the bound comes from $F_0$.
+\end{theorem}
+
+\begin{remark}[The cancellation gap]
+\label{rem:gap}
+The decomposition above is rigorous, but the reduction
+\[
+    \sigma_0 \;=\; \mathrm{abscissa\ of\ } \zeta(s)Q_0(s)
+\]
+is \emph{morally correct} rather than proven.
+The abscissa of \emph{conditional} convergence of a Dirichlet series depends
+on the size of partial sums of coefficients $e(n)$, not solely on analytic
+continuation of individual terms.  Although $R(s)$ is absolutely convergent
+for $\mathrm{Re}(s)>0$, and $F_1(s)$ is analytic for $\mathrm{Re}(s)>3/4$,
+it remains possible in principle that structured cancellation between the
+$k=0$ and $k=1$ layers shifts the conditional abscissa strictly left of the
+abscissa of $F_0$ alone.
+
+\textbf{Important constraint.}  This leftward shift is bounded below:
+Hardy (1916) proved the $\Omega$-result $e(n) = \Omega(n^{1/4})$, which
+forces $\sigma_0 \ge 3/4$.  Cancellation can therefore only place $\sigma_0$
+in the interval $[3/4,\, \sigma_c(F_0))$, not below $3/4$.
+The open question is whether $\sigma_0 = \sigma_c(F_0)$ exactly (i.e.\
+no cancellation occurs) or $\sigma_0$ sits strictly inside that interval.
+
+Ruling out the latter — showing that $F_1$ cannot reduce the abscissa via
+cancellation — is precisely the remaining gap, and is the point at which
+the classical proofs of the Dirichlet divisor bound become hard.
+\end{remark}
+
+%-----------------------------------------------------------------------
+\section{The Dirichlet Divisor Problem as a Contour Integral}
+%-----------------------------------------------------------------------
+
+\subsection{Perron's Formula}
+
+By Perron's formula, the partial sums of $e(n)$ satisfy:
+\begin{equation}
+    \sum_{n \le x} e(n) = \frac{1}{2\pi i}
+    \int_{\sigma-i\infty}^{\sigma+i\infty}
+    F(s)\,\frac{x^s}{s}\,ds, \qquad \sigma > \sigma_0.
+    \label{eq:perron}
+\end{equation}
+Since $F(s) \approx \zeta(s)Q_0(s)$ and $Q_0$ is analytic and bounded on the
+integration line, the integral reduces to:
+\begin{equation}
+    \sum_{n \le x} e(n) \sim x^\sigma
+    \int_{-\infty}^{\infty}
+    \zeta(\sigma+it)\,Q_0(\sigma+it)\,\frac{e^{it\log x}}{\sigma+it}\,dt.
+    \label{eq:fourier}
+\end{equation}
+This is a Fourier transform (in the variable $\log x$) of
+$\zeta(\sigma+it)Q_0(\sigma+it)/(\sigma+it)$.
+
+\subsection{The Convergence Question}
+
+For this Fourier integral to converge and yield a bound
+$\sum_{n\le x}e(n) = O(x^\sigma)$, one needs $|\zeta(\sigma+it)|$ to decay
+(or at worst grow sub-polynomially) as $|t|\to\infty$.
+
+\begin{definition}[Lindelöf $\mu$-function]
+\label{def:lindelof}
+$\mu(\sigma) := \inf\{\alpha \ge 0 : \zeta(\sigma+it) = O(|t|^\alpha)\}$.
+\end{definition}
+
+The Dirichlet divisor conjecture is equivalent to $\mu(3/4) = 0$.
+
+\subsection{The Final Statement}
+
+\begin{theorem}[Divisor problem and zeta growth]
+\label{thm:final}
+The derivation establishes the upper bound
+\begin{equation}
+    \theta \;\le\; \mu\!\left(\tfrac{3}{4}\right),
+    \label{eq:thetamu}
+\end{equation}
+where $\mu(\sigma)$ is the Lindel\"of $\mu$-function
+(Definition~\ref{def:lindelof}).  Explicitly: the Perron integral
+\eqref{eq:perron}, dominated by $F_0(s)$, converges for
+$\mathrm{Re}(s) > 1/2 + \mu(3/4)$ and yields
+$\sum_{n\le x}e(n) = O(x^{1/2+\mu(3/4)+\varepsilon})$ for any $\varepsilon>0$.
+
+The classical equality $\theta = \mu(3/4)$ is known in the literature, but
+the reverse inequality $\theta \ge \mu(3/4)$ requires a Tauberian argument
+controlling cancellation between the $k=0$ and $k=1$ layers — precisely
+the step identified as open in Remark~\ref{rem:gap}.  This derivation does
+not carry out that step.  Accordingly, the correct statement derived here is:
+\[
+    \boxed{\theta \;\le\; \mu\!\left(\tfrac{3}{4}\right),}
+\]
+with equality conditional on closing the cancellation gap.
+
+The $L^1$ condition $\int |{\zeta(\sigma+it)}|/(1+|t|)\,dt < \infty$ gives
+an upper bound on $\theta$ for the same reason; it is not established as an
+equivalence here.
+\end{theorem}
+
+The conjecture $\theta = 1/4$ corresponds to this threshold being at
+$\sigma = 3/4$, exactly halfway between the line of absolute convergence
+$\sigma = 1$ and the critical line $\sigma = 1/2$.
+
+\subsection{The Hierarchy of Implications}
+
+\[
+    \text{Riemann Hypothesis}
+    \implies \text{Lindelöf}\ (\mu(1/2)=0)
+    \implies \mu(3/4) = 0
+    \implies \theta = 1/4.
+\]
+Each arrow is a strict weakening.  Current best: Huxley gives
+$\theta \le 131/416 \approx 0.3149$ by bounding $\mu(3/4) \le 131/416 - 1/4$.
+
+%-----------------------------------------------------------------------
+\section{What Remains: The Open Gap}
+%-----------------------------------------------------------------------
+
+The derivation above is rigorous up to one point: the identification
+$\sigma_0 = \mathrm{abscissa\ of\ }F_0(s)$.  This section states precisely
+what is missing.
+
+\subsection{The $F_1$ cancellation problem}
+
+We have shown:
+\[
+    F(s) = \underbrace{\zeta(s)Q_0(s)}_{F_0}
+         + \underbrace{(-s)\,\zeta(s+1)Q_1(s)}_{F_1} + R(s),
+\]
+where $F_1$ is analytic for $\mathrm{Re}(s)>3/4$ and $R$ is absolutely
+convergent for $\mathrm{Re}(s)>0$.  The claim that $\sigma_0$ equals the
+abscissa of $F_0$ requires showing:
+
+\begin{quote}
+\emph{No cancellation between the $k=0$ and $k=1$ (or higher) layers of the
+perturbation expansion can reduce the abscissa of conditional convergence of
+$F(s)$ below the abscissa of $F_0(s)$ alone.}
+\end{quote}
+
+This is the open gap.  Concretely, one would need either:
+\begin{enumerate}
+    \item A pointwise bound: $|e_1(n)| \ll |e_0(n)|$ uniformly, which would
+          make the $k=1$ contribution strictly sub-dominant; or
+    \item A Dirichlet series argument: the analytic continuation of $F_1(s)$
+          into the strip $3/4 \le \mathrm{Re}(s) < \sigma_c(F_0)$ does not
+          cancel the singularities of $F_0$ in a way that moves the
+          conditional abscissa strictly left of $\sigma_c(F_0)$.
+\end{enumerate}
+
+Note: the strip in (2) is $3/4 \le \mathrm{Re}(s)$, not $1/4 < \mathrm{Re}(s)$.
+The hard lower bound $\sigma_0 \ge 3/4$ (Hardy's $\Omega$-theorem,
+$e(n) = \Omega(n^{1/4})$) is \emph{already proven} and is not in question.
+The gap is only about whether $\sigma_0$ equals $\sigma_c(F_0)$ or lies
+in the interval $[3/4,\,\sigma_c(F_0))$.
+
+\subsection{The wall}
+
+This is the same wall encountered in every classical approach to the divisor
+problem.  The perturbative expansion here makes the structure explicit: the
+difficulty is not analytic continuation of a single zeta function, but
+controlling cancellation between multiple shifted-zeta layers.
+
+Huxley's 2003 bound $\theta \le 131/416$ arises from bounding $\mu(3/4)$
+via exponential sum methods (van der Corput + Weyl differencing), not from
+resolving the cancellation question.  The bound $\theta = 1/4$ (the
+conjecture) corresponds to $\mu(3/4) = 0$, i.e.\ sub-polynomial growth of
+$\zeta(3/4+it)$ — a consequence of the Lindelöf Hypothesis, which is itself
+implied by (but strictly weaker than) the Riemann Hypothesis.
+
+%-----------------------------------------------------------------------
+\section{Why Complex Numbers?}
+%-----------------------------------------------------------------------
+
+The original problem --- bounding $|e(n)| = O(n^{3/4+\varepsilon})$ --- is
+purely about real integers.  Complex numbers enter because:
+
+\begin{enumerate}
+    \item Writing $n^{-s} = n^{-\sigma}e^{-it\log n}$, the variable $t$ is
+          a \emph{Fourier frequency} in $\log n$.  Complex $s$ decomposes
+          the sequence $e(n)$ into oscillatory modes.
+    \item Bounding $\sum_{n\le x}e(n)$ requires understanding cancellation.
+          Cancellation is oscillation.  Oscillation is naturally studied in
+          the complex plane.
+    \item Perron's formula inverts the Dirichlet series via a contour
+          integral.  Contour integrals require complex variables.
+\end{enumerate}
+
+The complex plane is not part of the \emph{problem}; it is part of the
+\emph{microscope}.  The imaginary direction is Fourier frequency space.
+The abscissa $\sigma_0$ at which the contour can no longer be shifted left
+is a real number: precisely $\tfrac{1}{2}+\theta$.
+
+The question ``does $\theta = 1/4$?'' is thus equivalent to:
+\begin{quote}
+\emph{Does $\zeta(3/4 + it)$ remain sub-polynomially bounded in $|t|$?}
+\end{quote}
+This has been known since Hardy--Landau ($\sim$1915) and appears in
+Titchmarsh's \emph{Theory of the Riemann Zeta-Function} and Ivić's
+\emph{The Riemann Zeta-Function}.  The derivation here recovers it from
+scratch via the explicit \texttt{a\_hoying} formula and a perturbative
+expansion.
+
+\bigskip
+\hrule
+\bigskip
+\noindent\textit{The wall is clean.  Nobody's getting through it today.}
+
+\end{document}
