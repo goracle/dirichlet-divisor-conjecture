@@ -25,13 +25,6 @@ static u128 isqrt_u128(u128 n) {
 }
 
 
-static long double exact_err_combo_u128(u128 n);
-
-
-static long double exact_err_D_u128(u128 n);
-
-
-
 /* -----------------------------------------------------------------------
    mpz_t helpers
    ----------------------------------------------------------------------- */
@@ -957,58 +950,80 @@ static std::string u128_to_string(u128 v) {
 /*
   Computes D(n) = sum_{m=1}^n tau(m)  and
            ST(n)= sum_{m=1}^n m * tau(m)
-  Both returned by reference. Uses block/hyperbola method exactly like your mpz
-  version but using native u128 arithmetic. Assumes n <= N_SAFE_MAX.
+  Both returned by reference. Uses block/hyperbola method.
+
+  PERFORMANCE: u128/u128 division compiles to a ~20-40 cycle software call
+  (__udivti3), vs a single hardware instruction for u64/u64.  Since n <= 10^19
+  fits in ull (2^64 ~ 1.84e19), we use ull arithmetic for all divisions and
+  only promote to u128 for the accumulator multiplications that can overflow u64.
 */
 static void D_and_sigma_tau_u128(u128 n, u128 &out_D, u128 &out_ST) {
     if (n == 0) { out_D = 0; out_ST = 0; return; }
 
-    u128 r = isqrt_u128(n);
+    u128 r128 = isqrt_u128(n);
 
-    u128 pD = 0;   // partial D
-    u128 pST = 0;  // partial sigma_tau
+    u128 pD  = 0;
+    u128 pST = 0;
 
-    u128 d = 1;
-    while (d <= n) {
-        u128 q = n / d;
-        u128 hi = n / q;
-        // block: d..hi have same quotient q
+    // Fast path: n fits in ull -> use hardware division throughout.
+    // All of our supported N (up to 10^19) satisfy this since 2^64 ~ 1.84e19.
+    if (n <= (u128)~0ULL) {
+        ull  n64 = (ull)n;
+        ull  r64 = (ull)r128;
 
-        // bsumd = (d + hi) * (hi - d + 1) / 2
-        u128 len = hi - d + 1;
-        // compute (d + hi) * len / 2 safely in u128:
-        u128 a = d + hi;
-        // do divide by 2 on one operand to keep intermediate small
-        if ((a & 1) == 0) a = a >> 1, /*len unchanged*/ (void)0;
-        else len = len >> 1; // len must be even if a odd (one of them is)
-        u128 bsumd = a * len; // <= ~ (2r)*(r) ~ O(r^2) << 2^128 for our N
+        ull d = 1;
+        while (d <= n64) {
+            ull q  = n64 / d;          // hardware div
+            ull hi = n64 / q;          // hardware div
 
-        // tq = q*(q+1)/2
-        u128 tq;
-        if ((q & 1) == 0) tq = (q >> 1) * (q + 1);
-        else tq = q * ((q + 1) >> 1);
+            // bsumd = (d + hi) * (hi - d + 1) / 2  -- fits in u128
+            u128 len = (u128)(hi - d + 1);
+            u128 a   = (u128)(d + hi);
+            if ((a & 1) == 0) a >>= 1;
+            else              len >>= 1;
+            u128 bsumd = a * len;
 
-        // pST += tq * bsumd  (may be large but within u128 for N<=3e18)
-        // Rearrangement below reduces risk of overflow by multiplying smaller operands first
-        // but for our N_SAFE_MAX the product fits in u128.
-        pST += tq * bsumd;
+            // tq = q*(q+1)/2  -- fits in u128 (q <= ~3.16e9 when d>r, q<=n64 when d=1)
+            u128 tq;
+            if ((q & 1) == 0) tq = ((u128)(q >> 1)) * (u128)(q + 1);
+            else               tq = (u128)q * (u128)((q + 1) >> 1);
 
-        // For pD we only count those d <= r (small side)
-        if (d <= r) {
-            u128 hi_small = (hi <= r) ? hi : r;
-            u128 cnt = hi_small - d + 1;
-            pD += cnt * q; // cnt <= r ~1e9, q <= n, product fits u128
+            pST += tq * bsumd;
+
+            if (d <= r64) {
+                ull hi_small = (hi <= r64) ? hi : r64;
+                u128 cnt = (u128)(hi_small - d + 1);
+                pD += cnt * (u128)q;
+            }
+
+            d = hi + 1;
         }
-
-        d = hi + 1;
+    } else {
+        // Slow fallback for hypothetical n > 2^64 (not currently reachable).
+        u128 r = r128;
+        u128 d = 1;
+        while (d <= n) {
+            u128 q  = n / d;
+            u128 hi = n / q;
+            u128 len = hi - d + 1;
+            u128 a   = d + hi;
+            if ((a & 1) == 0) a >>= 1;
+            else              len >>= 1;
+            u128 bsumd = a * len;
+            u128 tq;
+            if ((q & 1) == 0) tq = (q >> 1) * (q + 1);
+            else               tq = q * ((q + 1) >> 1);
+            pST += tq * bsumd;
+            if (d <= r) {
+                u128 hi_small = (hi <= r) ? hi : r;
+                pD += (hi_small - d + 1) * q;
+            }
+            d = hi + 1;
+        }
     }
 
-    // out_D = 2 * pD - r^2 + (handled above pD included tail)
-    // in the mpz version they computed out_D = 2*(pD + tail_D) - r^2;
-    // here pD already collects both halves via the block approach: same formula:
-    u128 r2 = r * r;
-    out_D = 2 * pD - r2;
-
+    u128 r2 = r128 * r128;
+    out_D  = 2 * pD - r2;
     out_ST = pST;
 }
 
@@ -1068,77 +1083,83 @@ i128 a_hoying_u128(u128 n) {
 }
 
 
-// Compute asymptotic in __float128 exactly as you already had:
-static void a_asymptotic_mpf_u128(u128 n, __float128 &asym_out) {
-    // return asym as __float128: x*((pi/2)*x - 1)
-    // we use the same PI_HALF_VAL constant you defined earlier for __float128
-    __float128 x = (__float128)n;
-    asym_out = x * (PI_HALF_VAL * x - (__float128)1.0);
+// -----------------------------------------------------------------------
+// __float128 asymptotic for a(n): a(n) ~ n^2/2*log(n) + (gamma-3/4)*n^2 + n/4
+// Uses long double log cast to __float128 — sufficient for n <= 3e18 since
+// the error term is ~n^0.75 ~1e13 and long double log has ~18 digits of n ~1e18.
+// -----------------------------------------------------------------------
+static __float128 a_asymptotic_f128(u128 n) {
+    if (n == 0) return (__float128)0.0;
+    __float128 x    = (__float128)n;
+    __float128 logx = (__float128)logl((long double)n);
+    const __float128 gamma128 = (__float128)0.577215664901532860606512090082402431L;
+    // n^2/2 * log(n) + (gamma - 3/4)*n^2 + n/4
+    __float128 x2   = x * x;
+    return x2 / (__float128)2.0 * logx
+         + (gamma128 - (__float128)0.75) * x2
+         + x / (__float128)4.0;
 }
 
-// Exact error computed using u128 integer a(n) and the asym fractional trick.
-// Returns long double (same semantic as subtract_asym_mpf).
-static long double exact_err_u128(u128 n) {
-    // a(n) computed by fused identity in i128
-    if (n <= 1) return 0.0L;
-    i128 a_int = a_identity_fused_u128(n);  // signed i128 exact integer
+// __float128 asymptotic for D(n): D(n) ~ n*log(n) + (2*gamma-1)*n
+static __float128 D_asymptotic_f128(u128 n) {
+    if (n == 0) return (__float128)0.0;
+    __float128 x    = (__float128)n;
+    __float128 logx = (__float128)logl((long double)n);
+    const __float128 gamma128 = (__float128)0.577215664901532860606512090082402431L;
+    return x * logx + ((__float128)2.0 * gamma128 - (__float128)1.0) * x;
+}
 
-    // asymptotic in __float128
-    __float128 asym;
-    a_asymptotic_mpf_u128(n, asym);
-
-    // floor(asym) as i128
-    i128 asym_floor = (i128)asym;        // truncates toward 0; asym is positive for n>=1
+// Helper: exact_integer - __float128_asymptotic -> long double residual.
+static inline long double residual_f128(i128 exact_int, __float128 asym) {
+    i128      asym_floor = (i128)asym;
     __float128 asym_frac = asym - (__float128)asym_floor;
-
-    // integer difference (exact)
-    i128 int_diff = a_int - asym_floor;
-
-    // final small residual as long double
-    long double result = (long double)int_diff - (long double)asym_frac;
-    return result;
+    i128      int_diff   = exact_int - asym_floor;
+    return (long double)int_diff - (long double)asym_frac;
 }
 
-// exact_err for D(n) using the D_and_sigma_tau_u128 wrapper:
-static long double exact_err_D_u128(u128 n) {
-    if (n == 0) return 0.0L;
-    u128 Dval, ST;
-    D_and_sigma_tau_u128(n, Dval, ST); // returns D(n) in Dval
-    // Now compute D asymptotic: D(n) ~ n*log n + (2*gamma - 1)*n
-    // We'll reuse your D_asymptotic_mpf but we want a __float128 version (fast).
-    // Simple approximation in long double is fine here, but to match your accuracy,
-    // call your mpf-based D_asymptotic_mpf into an __float128, or reuse existing D_asymptotic_mpf.
-    // For performance, here's a compact __float128 version (sufficient for N<=3e18):
+// -----------------------------------------------------------------------
+// Fused single-pass computation of all three errors for one sample point.
+//
+// Does ONE call to D_and_sigma_tau_u128(n-1) to get D(n-1) and ST(n-1),
+// then derives a(n) = n*D(n-1) - ST(n-1).
+// Also computes err_D and err_combo from one additional call for D(n)/ST(n).
+//
+// For points above cutoff: only err_a is needed; below cutoff all three.
+// Pass compute_d_combo=false above cutoff to skip the second O(sqrt n) call.
+// -----------------------------------------------------------------------
+static void compute_all_errors_u128(u128 n,
+                                     bool compute_d_combo,
+                                     long double &err_a,
+                                     long double &err_d,
+                                     long double &err_combo)
+{
+    if (n <= 1) { err_a = 0.0L; err_d = NAN; err_combo = NAN; return; }
 
-    // compute log(n) in long double then cast
-    long double logn_ld = logl((long double)n);
-    __float128 logn = (__float128)logn_ld;
-    __float128 x = (__float128)n;
-    const long double gamma_ld = 0.577215664901532860606512090082402431L;
-    __float128 gamma128 = (__float128)gamma_ld;
-    __float128 asym = x * logn + ( (__float128)2.0 * gamma128 - (__float128)1.0) * x;
+    // Single O(sqrt n) call: D(n-1) and ST(n-1)
+    u128 Dval_nm1, ST_nm1;
+    D_and_sigma_tau_u128(n - 1, Dval_nm1, ST_nm1);
 
-    // cast Dval to i128
-    i128 D_int = (i128)Dval;
-    i128 asym_floor = (i128)asym;
-    __float128 asym_frac = asym - (__float128)asym_floor;
-    i128 int_diff = D_int - asym_floor;
-    long double result = (long double)int_diff - (long double)asym_frac;
-    return result;
-}
+    // a(n) = n*D(n-1) - ST(n-1)  (exact signed i128)
+    i128 a_int = (i128)n * (i128)Dval_nm1 - (i128)ST_nm1;
+    err_a = residual_f128(a_int, a_asymptotic_f128(n));
 
-// combo = (sigma_tau(n) - a(n+1)) / n  -> compute using u128 paths
-static long double exact_err_combo_u128(u128 n) {
-    // sigma_tau(n)
-    u128 Dtmp, ST;
-    D_and_sigma_tau_u128(n, Dtmp, ST);
-    i128 sigma_int = (i128)ST;
-    // a(n+1)
-    i128 a_n1 = a_identity_fused_u128(n + 1);
-    i128 numer = sigma_int - a_n1;
-    // divide by n exactly using long double
-    long double res = (long double)numer / (long double)n;
-    return res;
+    if (!compute_d_combo) {
+        err_d     = NAN;
+        err_combo = NAN;
+        return;
+    }
+
+    // Second O(sqrt n) call for D(n) and ST(n) — needed for err_D and err_combo
+    u128 Dval_n, ST_n;
+    D_and_sigma_tau_u128(n, Dval_n, ST_n);
+
+    err_d = residual_f128((i128)Dval_n, D_asymptotic_f128(n));
+
+    // err_combo = (sigma_tau(n) - a(n+1)) / n
+    // a(n+1) = (n+1)*D(n) - ST(n)
+    i128 a_np1  = (i128)(n + 1) * (i128)Dval_n - (i128)ST_n;
+    i128 numer  = (i128)ST_n - a_np1;
+    err_combo   = (long double)numer / (long double)n;
 }
 
 
@@ -1179,26 +1200,23 @@ void run_asymptotic_table(u128 cutoff, u128 max_n, double ratio,
         row.mismatch = false;
         row.verified = (n <= cutoff);
 
-        // verification path for small n: compare direct a_hoying vs fused identity.
+        // Fused single-pass: one D_and_sigma_tau_u128(n-1) for a(n) err_a,
+        // one optional D_and_sigma_tau_u128(n) for err_d/err_combo below cutoff.
+        // Above cutoff: only one O(sqrt n) call total.
+        compute_all_errors_u128(n, row.verified,
+                                row.err_a, row.err_d, row.err_combo);
+
+        // Verification: compare a_hoying_u128(n-1) vs fused a(n).
+        // Only runs below cutoff (small n), so the extra O(sqrt n) is cheap.
         if (row.verified) {
-            // use u128 versions (avoid mpz)
             i128 hoy_int = a_hoying_u128(n - 1);
-            i128 fus_int = a_identity_fused_u128(n);
+            u128 Dv, STv;
+            D_and_sigma_tau_u128(n - 1, Dv, STv);
+            i128 fus_int = (i128)n * (i128)Dv - (i128)STv;
             if (hoy_int != fus_int) {
                 row.mismatch = true;
-                row.mismatch_msg = std::string("MISMATCH (u128)"); // small msg; don't allocate huge strings in threads
+                row.mismatch_msg = std::string("MISMATCH (u128)");
             }
-        }
-
-        // Now compute the main error using the fast u128 exact error
-        row.err_a = exact_err_u128(n);
-
-        if (row.verified) {
-            row.err_d     = exact_err_D_u128(n);
-            row.err_combo = exact_err_combo_u128(n);
-        } else {
-            row.err_d     = NAN;
-            row.err_combo = NAN;
         }
         row.logn = logl((long double)n);
 
