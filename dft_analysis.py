@@ -9,8 +9,9 @@ import numpy as np
 import h5py
 import matplotlib.pyplot as plt
 from scipy.signal import find_peaks
+from scipy.stats import linregress
 
-PRECISION_CLIFF = 4.855e18
+PRECISION_CLIFF = 2.80e18
 HDF5_PATH = "results.h5"
 
 # ── Load data ──────────────────────────────────────────────────────────────────
@@ -21,6 +22,31 @@ with h5py.File(HDF5_PATH, "r") as f:
 
 # n_str is bytes; convert to float
 n_vals = np.array([float(s.decode() if isinstance(s, bytes) else s) for s in n_str])
+
+# ── OLS regression ─────────────────────────────────────────────────────────────
+# Fit log|err_a| ~ alpha*log(n) + C on clean data only:
+#   n > 1e6  : skip transient / small-n regime
+#   n < cliff: skip precision-cliff contamination (frozen/zero residuals)
+#   err_a != 0 and finite: skip any exact zeros or NaNs from cliff artefacts
+# theta = alpha - 0.5  (since err_osc = O(n^{theta + 0.5}))
+ols_mask = (
+    (n_vals > 1e6) &
+    (n_vals < PRECISION_CLIFF) &
+    (err_a != 0.0) &
+    np.isfinite(err_a)
+)
+_logn_ols = np.log(n_vals[ols_mask])
+_loge_ols = np.log(np.abs(err_a[ols_mask]))
+print(f"OLS on {ols_mask.sum()} points  (1e6 < n < {PRECISION_CLIFF:.2e})")
+if ols_mask.sum() >= 3:
+    _slope, _intercept, _r, _, _se = linregress(_logn_ols, _loge_ols)
+    _theta = _slope - 0.5
+    print(f"  log|err_a| ~ {_slope:.6f}*log(n) + {_intercept:.4f}")
+    print(f"  alpha={_slope:.6f}  =>  theta_OLS = alpha-0.5 = {_theta:.6f}")
+    print(f"  R²={_r**2:.6f}  std_err(alpha)={_se:.6f}")
+    print(f"  (conjecture: theta=0.25 | Huxley: theta<=0.315)")
+else:
+    _slope = _intercept = _theta = _r = _se = None
 
 # Cut at precision cliff
 mask   = n_vals < PRECISION_CLIFF
@@ -129,7 +155,7 @@ for g, fz in zip(ZETA_ZEROS[:20], zeta_freqs[:20]):
     print(f"{g:>12.6f}  {fz:>12.6f}  {nearest:>15.6f}  {delta_g:>+10.4f}  {magnitudes[nearest_pidx]:>12.1f}")
 
 # ── Plot ───────────────────────────────────────────────────────────────────────
-fig, axes = plt.subplots(3, 1, figsize=(14, 12))
+fig, axes = plt.subplots(4, 1, figsize=(14, 16))
 fig.patch.set_facecolor("#080b10")
 for ax in axes:
     ax.set_facecolor("#0d1219")
@@ -142,32 +168,50 @@ for ax in axes:
 # Panel 1: time series (err_a on log-n axis)
 axes[0].plot(logn, err_a, color="#00d4ff", lw=0.6)
 axes[0].set_xlabel("log(n)")
-axes[0].set_ylabel("err_a")
-axes[0].set_title("err_osc signal (geometric sample grid)", color="#c8d8e8")
+axes[0].set_ylabel("err_a / n^0.75")
+axes[0].set_title("err_osc / n^0.75  (n < 2.8e18)", color="#c8d8e8")
 
-# Panel 2: full DFT spectrum
-axes[1].set_xlim(0, 0.02)
+# Panel 2: OLS scatter + fit
+if _slope is not None:
+    axes[1].scatter(_logn_ols, _loge_ols, s=2, color="#00d4ff", alpha=0.25, rasterized=True)
+    _fit = _slope * _logn_ols + _intercept
+    axes[1].plot(_logn_ols, _fit, color="#ff6b35", lw=1.5,
+                 label=f"OLS: α={_slope:.4f}, θ={_theta:.4f}, R²={_r**2:.4f}")
+    # Reference slopes anchored to data centroid
+    _mx, _my = _logn_ols.mean(), _loge_ols.mean()
+    for _tref, _lbl, _col in [(0.25, "θ=0.25 (conjecture)", "#d966ff"),
+                               (0.315, "θ=0.315 (Huxley)",   "#ffcc00")]:
+        _s = _tref + 0.5   # alpha = theta + 0.5
+        axes[1].plot(_logn_ols, _s*(_logn_ols - _mx) + _my,
+                     '--', color=_col, lw=1.0, alpha=0.8, label=_lbl)
+    axes[1].set_xlabel("log(n)")
+    axes[1].set_ylabel("log|err_a|")
+    axes[1].set_title(f"OLS  [1e6 < n < 2.8e18]  →  θ = {_theta:.6f}", color="#c8d8e8")
+    axes[1].legend(facecolor="#0d1219", edgecolor="#1e2d3d", labelcolor="#c8d8e8", fontsize=8)
+
+# Panel 3: full DFT spectrum
 axes[2].set_xlim(0, 0.02)
-axes[1].plot(freqs, magnitudes, color="#00d4ff", lw=0.7)
-axes[1].plot(freqs[peak_idx[:20]], magnitudes[peak_idx[:20]],
+axes[3].set_xlim(0, 0.02)
+axes[2].plot(freqs, magnitudes, color="#00d4ff", lw=0.7)
+axes[2].plot(freqs[peak_idx[:20]], magnitudes[peak_idx[:20]],
              "x", color="#d966ff", ms=6, lw=1.5, label="top 20 peaks")
 for fz, g in zip(zeta_freqs[:20], ZETA_ZEROS[:20]):
-    axes[1].axvline(fz, color="#ff6b35", lw=0.6, alpha=0.5)
-axes[1].axvline(zeta_freqs[0], color="#ff6b35", lw=0.6, alpha=0.5, label="zeta zeros γ_k")
-axes[1].set_xlabel("frequency (cycles per log-sample)")
-axes[1].set_ylabel("|DFT|")
-axes[1].set_title("DFT magnitude spectrum — err_a (Hann windowed, log-uniform grid)", color="#c8d8e8")
-axes[1].legend(facecolor="#0d1219", edgecolor="#1e2d3d", labelcolor="#c8d8e8")
+    axes[2].axvline(fz, color="#ff6b35", lw=0.6, alpha=0.5)
+axes[2].axvline(zeta_freqs[0], color="#ff6b35", lw=0.6, alpha=0.5, label="zeta zeros γ_k")
+axes[2].set_xlabel("frequency (cycles per log-sample)")
+axes[2].set_ylabel("|DFT|")
+axes[2].set_title("DFT magnitude spectrum — err_a (Hann windowed, log-uniform grid)", color="#c8d8e8")
+axes[2].legend(facecolor="#0d1219", edgecolor="#1e2d3d", labelcolor="#c8d8e8")
 
-# Panel 3: log-scale DFT to see high-freq structure
-axes[2].semilogy(freqs[1:], magnitudes[1:], color="#00d4ff", lw=0.7)
-axes[2].semilogy(freqs[peak_idx[:20]], magnitudes[peak_idx[:20]],
+# Panel 4: log-scale DFT to see high-freq structure
+axes[3].semilogy(freqs[1:], magnitudes[1:], color="#00d4ff", lw=0.7)
+axes[3].semilogy(freqs[peak_idx[:20]], magnitudes[peak_idx[:20]],
                  "x", color="#d966ff", ms=6, lw=1.5)
 for fz in zeta_freqs[:20]:
-    axes[2].axvline(fz, color="#ff6b35", lw=0.6, alpha=0.5)
-axes[2].set_xlabel("frequency (cycles per log-sample)")
-axes[2].set_ylabel("log |DFT|")
-axes[2].set_title("DFT — log scale (orange lines = zeta zeros)", color="#c8d8e8")
+    axes[3].axvline(fz, color="#ff6b35", lw=0.6, alpha=0.5)
+axes[3].set_xlabel("frequency (cycles per log-sample)")
+axes[3].set_ylabel("log |DFT|")
+axes[3].set_title("DFT — log scale (orange lines = zeta zeros)", color="#c8d8e8")
 
 plt.tight_layout(pad=2.0)
 plt.savefig("dft_err_a.png", dpi=150, facecolor="#080b10")
