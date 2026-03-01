@@ -1,57 +1,37 @@
-// Compile:
-//   g++ -O2 -fopenmp -o delta main.cpp -lgmp -lhdf5 -lm -lquadmath
-// Without libquadmath:
-//   g++ -O2 -fopenmp -DNO_QUADMATH -o delta main.cpp -lgmp -lhdf5 -lm
-//
-// Install deps (Ubuntu/Debian):
-//   sudo apt-get install libgmp-dev libhdf5-dev
-//
-// Output: results.h5  (flat datasets: n_str, err_a, err_d, err_combo, logn,
-//                       theta_slope, env_max, method)
-// Optional 4th arg overrides output path:  ./delta 1e16 10000 10.0 myfile.h5
+// Compile: g++ -O2 -o delta main.cpp -lm -lquadmath
+// (use -std=gnu++14 if needed; -std=gnu11 is C-only and will warn)
+// Without libquadmath: g++ -O2 -DNO_QUADMATH -o delta main.cpp -lm
+// (asymptotic error display inaccurate for n > ~10^9 without it)
+#include <time.h>
+#include <stdio.h>
+#include <stdint.h>
+#include <math.h>
+#include <stdlib.h>
+#include <algorithm>
+#include <string>
+#include <iostream>
+#include <vector>
+#include <cassert>
+#include <atomic>
+#include <cstring>
+#include <omp.h>
 
-#include "header.h"
+#ifndef NO_QUADMATH
+#include <quadmath.h>
+#endif
 
-// integer sqrt for u128 (floor)
-static u128 isqrt_u128(u128 n) {
-    if (n == 0) return 0;
-    // start from 64-bit double estimate
-    long double approx = sqrt((long double)n);
-    u128 r = (u128)approx;
-    // refine
-    while ((r+1)*(r+1) <= n) ++r;
-    while (r*r > n) --r;
-    return r;
-}
+typedef __int128 i128;
+typedef __uint128_t u128;
+typedef unsigned long long ull;
 
-
-/* -----------------------------------------------------------------------
-   mpz_t helpers
-   ----------------------------------------------------------------------- */
-
-// Set mpz from u128 by splitting into two 64-bit halves.
-static inline void mpz_set_u128(mpz_t z, u128 v) {
-    uint64_t hi = (uint64_t)(v >> 64);
-    uint64_t lo = (uint64_t)(v);
-    mpz_set_ui(z, hi);
-    mpz_mul_2exp(z, z, 64);
-    mpz_add_ui(z, z, lo);
-}
-
-// Convert mpz to string (caller must free).
-static inline std::string mpz_str(mpz_t z) {
-    char *s = mpz_get_str(nullptr, 10, z);
-    std::string r(s);
-    free(s);
-    return r;
-}
-
-/* -----------------------------------------------------------------------
-   Progress bar (unchanged logic, unchanged interface)
-   ----------------------------------------------------------------------- */
+/* ---- Progress bar: weighted by sqrt(n) so bar reflects actual compute time.
+   Small-n points are cheap (microseconds) and numerous; large-n points are
+   expensive (seconds).  Counting points equally makes the bar sprint to ~80%
+   instantly then crawl -- weighting by sqrt(n) matches the O(sqrt(n)) cost.
+   Thread-safe: atomic CAS accumulator, mutex-throttled rendering (~1/sec).  */
 struct Progress {
     double                 total_weight;
-    std::atomic<long long> done_weight_bits;
+    std::atomic<long long> done_weight_bits;  // double accumulated as raw bits via CAS
     double                 t_start;
     FILE                  *tty;
     omp_lock_t             lock;
@@ -70,6 +50,7 @@ struct Progress {
     }
 
     void tick(double w) {
+        // Accumulate w into a double atomically via CAS on its bit pattern.
         while (true) {
             long long old_bits = done_weight_bits.load(std::memory_order_relaxed);
             double old_val; memcpy(&old_val, &old_bits, 8);
@@ -104,9 +85,11 @@ private:
     void render_nolock() {
         long long bits = done_weight_bits.load(std::memory_order_relaxed);
         double done_w; memcpy(&done_w, &bits, 8);
+
         double elapsed = omp_get_wtime() - t_start;
         double frac    = (total_weight > 0.0) ? done_w / total_weight : 0.0;
         if (frac > 1.0) frac = 1.0;
+
         char eta_buf[32] = "  --:--";
         if (frac > 0.001) {
             double remain = elapsed / frac * (1.0 - frac);
@@ -117,11 +100,13 @@ private:
                 snprintf(eta_buf, sizeof(eta_buf), " eta %dh%02dm",
                          (int)(remain/3600), ((int)(remain/60)) % 60);
         }
+
         const int W = 20;
         int filled = (int)(frac * W + 0.5);
         char bar[W+3]; bar[0]='[';
         for (int i = 0; i < W; i++) bar[1+i] = (i < filled) ? '#' : '-';
         bar[W+1]=']'; bar[W+2]='\0';
+
         fprintf(tty, "\r  %s %.1f%%  %.0fs elapsed%s   ",
                 bar, frac * 100.0, elapsed, eta_buf);
         fflush(tty);
@@ -129,7 +114,21 @@ private:
 };
 static Progress g_progress;
 
-/* --- Utility: u128 to string --- */
+/* --- Utility: i128 to String --- */
+std::string i128_to_str(i128 n) {
+    if (n == 0) return "0";
+    std::string s = "";
+    bool neg = false;
+    if (n < 0) { neg = true; n = -n; }
+    while (n > 0) {
+        s += (char)('0' + (n % 10));
+        n /= 10;
+    }
+    if (neg) s += '-';
+    std::reverse(s.begin(), s.end());
+    return s;
+}
+
 std::string u128_to_str(u128 n) {
     if (n == 0) return "0";
     std::string s = "";
@@ -138,7 +137,7 @@ std::string u128_to_str(u128 n) {
     return s;
 }
 
-/* Parse a decimal string into u128 */
+/* Parse a decimal string into u128 (handles values beyond strtoull range) */
 u128 parse_u128(const char *s) {
     u128 v = 0;
     for (; *s >= '0' && *s <= '9'; s++)
@@ -146,512 +145,205 @@ u128 parse_u128(const char *s) {
     return v;
 }
 
-
-
-/* -----------------------------------------------------------------------
-   D(n) = sum_{m=1}^{n} tau(m)  [O(sqrt(n))]
-   Hyperbola method: 2 * sum_{k=1}^{r} floor(n/k) - r^2
-   Accumulator: mpz_t (caller must init out before calling).
-   ----------------------------------------------------------------------- */
-void D_mpz(u128 n, mpz_t out) {
-    if (n == 0) { mpz_set_ui(out, 0); return; }
-    u128 r = isqrt_u128(n);
-
-    mpz_t s, tmp, r2;
-    mpz_init_set_ui(s, 0);
-    mpz_init(tmp);
-    mpz_init(r2);
-
-    for (u128 k = 1; k <= r; k++) {
-        mpz_set_u128(tmp, n / k);
-        mpz_add(s, s, tmp);
-    }
-    mpz_mul_ui(s, s, 2);
-
-    mpz_set_u128(r2, r);
-    mpz_mul(r2, r2, r2);
-    mpz_sub(out, s, r2);
-
-    mpz_clear(s); mpz_clear(tmp); mpz_clear(r2);
+/* Integer square root for u128: returns floor(sqrt(n)) exactly */
+u128 isqrt_u128(u128 n) {
+    if (n == 0) return 0;
+    // Start with float128 approximation then correct
+    u128 r = (u128)sqrtl((long double)n);
+    // sqrtl loses precision for n > ~2^106; nudge up/down to find exact floor
+    while ((r+1)*(r+1) <= n) r++;
+    while (r*r > n) r--;
+    return r;
 }
 
-/* -----------------------------------------------------------------------
-   sigma_tau(n) = sum_{m=1}^{n} m*tau(m)  [O(sqrt(n))]
-   Block-compressed. Accumulator: mpz_t.
-   ----------------------------------------------------------------------- */
-void sigma_tau_mpz(u128 n, mpz_t out) {
-    if (n == 0) { mpz_set_ui(out, 0); return; }
+/* --- D(n) = sum_{m=1}^{n} tau(m)  [O(sqrt(n))]
+   Hyperbola method:  sum_{m<=n} tau(m) = 2 * sum_{k=1}^{r} floor(n/k) - r^2
+   where r = floor(sqrt(n)).                                              */
+i128 D(u128 n) {
+    if (n == 0) return 0;
+    u128 r = isqrt_u128(n);
+    i128 s = 0;
+    for (u128 k = 1; k <= r; k++)
+        s += (i128)(n / k);
+    return 2*s - (i128)r*(i128)r;
+}
 
-    mpz_t s, tq, bsumd, tmp_lo, tmp_hi, tmp_q, tmp_blen;
-    mpz_init_set_ui(s, 0);
-    mpz_init(tq); mpz_init(bsumd);
-    mpz_init(tmp_lo); mpz_init(tmp_hi); mpz_init(tmp_q); mpz_init(tmp_blen);
-
+/* --- sigma_tau(n) = sum_{m=1}^{n} m*tau(m)  [O(sqrt(n))]
+   Via: sum_{m<=n} m*tau(m) = sum_{d=1}^{n} d * T(floor(n/d))
+   where T(k)=k(k+1)/2, since tau(m) = #{d|m} => each d contributes d*1
+   to every multiple m=d*k<=n, and the inner sum over k of d*k = d*T(floor(n/d)).
+   Block-compress over distinct values of floor(n/d).                     */
+i128 sigma_tau(u128 n) {
+    if (n == 0) return 0;
+    auto T = [](i128 k) -> i128 { return k*(k+1)/2; };
+    i128 s = 0;
     u128 d = 1;
     while (d <= n) {
         u128 q  = n / d;
         u128 d2 = n / q;
-
-        // bsumd = (d + d2) * (d2 - d + 1) / 2
-        mpz_set_u128(tmp_lo,   d);
-        mpz_set_u128(tmp_hi,   d2);
-        mpz_set_u128(tmp_blen, d2 - d + 1);
-        mpz_add(bsumd, tmp_lo, tmp_hi);
-        mpz_mul(bsumd, bsumd, tmp_blen);
-        mpz_tdiv_q_2exp(bsumd, bsumd, 1);
-
-        // tq = q*(q+1)/2
-        mpz_set_u128(tmp_q, q);
-        mpz_set(tq, tmp_q);
-        mpz_add_ui(tq, tq, 1);
-        mpz_mul(tq, tq, tmp_q);
-        mpz_tdiv_q_2exp(tq, tq, 1);
-
-        mpz_mul(tq, tq, bsumd);
-        mpz_add(s, s, tq);
-
+        i128 lo = (i128)d, hi = (i128)d2;
+        i128 sum_d = (lo + hi) * (hi - lo + 1) / 2;
+        s += T((i128)q) * sum_d;
         d = d2 + 1;
     }
-    mpz_set(out, s);
-
-    mpz_clear(s); mpz_clear(tq); mpz_clear(bsumd);
-    mpz_clear(tmp_lo); mpz_clear(tmp_hi); mpz_clear(tmp_q); mpz_clear(tmp_blen);
+    return s;
 }
 
-/* -----------------------------------------------------------------------
-   a_hoying(n): Original O(sqrt(n)) formula.
-     term1 = r^2 * ((1+r)^2 - 4*(n+1)) / 4
-     sum   = sum_{i=1}^{r} q * (2*(n+1) - i*(1+q))    where q = floor(n/i)
-   Accumulator: mpz_t.
-   ----------------------------------------------------------------------- */
-void a_hoying_mpz(u128 n, mpz_t out) {
-    if (n == 0) { mpz_set_ui(out, 0); return; }
-
+/* --- Original O(sqrt(n)) formula from PDF --- */
+/* Sum over i=1..r is a pure reduction -- no dependencies, trivially parallel. */
+i128 a_hoying(u128 n) {
+    if (n == 0) return 0;
     u128 r_val = isqrt_u128(n);
+    i128 r     = (i128)r_val;
+    i128 n_128 = (i128)n;
+    i128 term1 = (r * r) * ((1 + r) * (1 + r) - 4 * (n_128 + 1)) / 4;
 
-    mpz_t r, n128, r2, one_plus_r_sq, four_np1, term1;
-    mpz_init(r);    mpz_set_u128(r, r_val);
-    mpz_init(n128); mpz_set_u128(n128, n);
-    mpz_init(r2);   mpz_mul(r2, r, r);
-    mpz_init(one_plus_r_sq);
-    mpz_init(four_np1);
-    mpz_init(term1);
+    // OpenMP reduction on i128 not natively supported; accumulate per-thread
+    // partial sums in a vector then reduce serially.
+    int nt = omp_in_parallel() ? 1 : omp_get_max_threads();
+    std::vector<i128> parts(nt, (i128)0);
 
-    // term1 = r^2 * ((1+r)^2 - 4*(n+1)) / 4
-    mpz_add_ui(one_plus_r_sq, r, 1);
-    mpz_mul(one_plus_r_sq, one_plus_r_sq, one_plus_r_sq);
-    mpz_add_ui(four_np1, n128, 1);
-    mpz_mul_ui(four_np1, four_np1, 4);
-    mpz_sub(term1, one_plus_r_sq, four_np1);
-    mpz_mul(term1, term1, r2);
-    mpz_tdiv_q_ui(term1, term1, 4);
-
-    // sum_part
-    mpz_t sum_part, q, i_z, inner, two_np2;
-    mpz_init_set_ui(sum_part, 0);
-    mpz_init(q); mpz_init(i_z); mpz_init(inner);
-    mpz_init(two_np2);
-    mpz_add_ui(two_np2, n128, 1);
-    mpz_mul_ui(two_np2, two_np2, 2);   // 2*(n+1), constant
-
-    for (u128 i = 1; i <= r_val; i++) {
-        u128 qv = n / i;
-        mpz_set_u128(q,   qv);
-        mpz_set_u128(i_z, i);
-
-        // inner = q * (2*(n+1) - i*(1+q))
-        mpz_add_ui(inner, q, 1);
-        mpz_mul(inner, inner, i_z);
-        mpz_sub(inner, two_np2, inner);
-        mpz_mul(inner, inner, q);
-        mpz_add(sum_part, sum_part, inner);
+    #pragma omp parallel num_threads(nt)
+    {
+        int t = omp_get_thread_num();
+        i128 local = 0;
+        #pragma omp for schedule(static) nowait
+        for (u128 i = 1; i <= r_val; i++) {
+            i128 q     = (i128)(n / i);
+            i128 i_128 = (i128)i;
+            local += q * (2 * n_128 + 2 - i_128 * (1 + q));
+        }
+        parts[t] = local;
     }
 
-    mpz_add(out, term1, sum_part);
-
-    mpz_clear(r); mpz_clear(n128); mpz_clear(r2); mpz_clear(one_plus_r_sq);
-    mpz_clear(four_np1); mpz_clear(term1);
-    mpz_clear(sum_part); mpz_clear(q); mpz_clear(i_z); mpz_clear(inner); mpz_clear(two_np2);
+    i128 sum_part = 0;
+    for (int t = 0; t < nt; t++) sum_part += parts[t];
+    return term1 + sum_part;
 }
 
-/* -----------------------------------------------------------------------
-   D_ST_chunk: accumulate partial D and sigma_tau sums for d in [d_lo, d_hi].
-   part_D and part_ST must be pre-initialised to 0 by caller.
-   ----------------------------------------------------------------------- */
-static void D_ST_chunk_mpz(u128 n, u128 r, u128 d_lo, u128 d_hi,
-                            mpz_t part_D, mpz_t part_ST)
-{
-    if (d_lo > d_hi || d_lo > n) return;
+/* --- Joint computation of D(n) and sigma_tau(n).
+   PARALLELIZED: split d-range [1..n] into per-thread chunks, pure reduction.
 
-    mpz_t q_z, bsumd, tq, tmp;
-    mpz_init(q_z); mpz_init(bsumd); mpz_init(tq); mpz_init(tmp);
+   The block-compression loop has ~2*sqrt(n) iterations (one per distinct
+   floor(n/d) value).  Each iteration is independent, so we split the d-range
+   into nt contiguous chunks and run each on its own core.
+
+   Chunk boundary subtlety: a block [d, n/(n/d)] may straddle a chunk boundary.
+   We handle this by clamping hi = min(n/q, d_hi) inside the kernel, which
+   splits one logical block into two partial blocks — each is still a valid
+   arithmetic sum, just over a sub-range of d.
+
+   Load balance: block density is ~1/sqrt(d), so small-d chunks have more blocks
+   than large-d chunks.  Splitting [1..n] equally by d-value gives ~sqrt(n)/nt
+   blocks per chunk at small d vs ~1 block at large d -- mildly uneven, but the
+   large-d region (d > r = sqrt(n)) contributes negligibly to wall time since
+   each block there spans a huge range of d values.  In practice this gives
+   near-linear speedup up to ~8 cores; beyond that consider splitting [1..r]
+   more carefully.                                                               */
+
+/* Kernel: accumulate partial D and sigma_tau sums for d in [d_lo, d_hi].       */
+static void D_ST_chunk(u128 n, u128 r, u128 d_lo, u128 d_hi,
+                       i128 &part_D, i128 &part_ST) {
+    part_D  = 0;
+    part_ST = 0;
+    if (d_lo > d_hi || d_lo > n) return;
 
     u128 d = d_lo;
     while (d <= d_hi) {
         u128 q  = n / d;
         u128 hi = n / q;
-        if (hi > d_hi) hi = d_hi;
+        if (hi > d_hi) hi = d_hi;   // clamp block to chunk boundary
 
-        u128 blen = hi - d + 1;
-        u128 bslo = d + hi;
-
-        // bsumd = bslo * blen / 2
-        mpz_set_u128(bsumd, bslo);
-        mpz_set_u128(tmp,   blen);
-        mpz_mul(bsumd, bsumd, tmp);
-        mpz_tdiv_q_2exp(bsumd, bsumd, 1);
-
-        // tq = q*(q+1)/2
-        mpz_set_u128(q_z, q);
-        mpz_set(tq, q_z);
-        mpz_add_ui(tq, tq, 1);
-        mpz_mul(tq, tq, q_z);
-        mpz_tdiv_q_2exp(tq, tq, 1);
-
-        mpz_mul(tq, tq, bsumd);
-        mpz_add(part_ST, part_ST, tq);
+        u128 blen  = hi - d + 1;
+        u128 bslo  = d + hi;
+        i128 bsumd = (bslo & 1) ? (i128)bslo  * (i128)(blen / 2)
+                                 : (i128)(bslo / 2) * (i128)blen;
+        i128 tq = (i128)q * ((i128)q + 1) / 2;
+        part_ST += tq * bsumd;
 
         if (d <= r) {
             u128 hic = (hi <= r) ? hi : r;
-            mpz_set_u128(tmp, hic - d + 1);
-            mpz_mul(tmp, tmp, q_z);
-            mpz_add(part_D, part_D, tmp);
+            part_D += (i128)q * (i128)(hic - d + 1);
         }
 
         d = hi + 1;
     }
-
-    mpz_clear(q_z); mpz_clear(bsumd); mpz_clear(tq); mpz_clear(tmp);
 }
 
-/* -----------------------------------------------------------------------
-   Joint computation of D(n) and sigma_tau(n). [O(sqrt(n)), serial]
-   out_D and out_ST must be pre-initialised by caller.
-   ----------------------------------------------------------------------- */
-void D_and_sigma_tau_mpz(u128 n, mpz_t out_D, mpz_t out_ST) {
-    if (n == 0) { mpz_set_ui(out_D, 0); mpz_set_ui(out_ST, 0); return; }
+void D_and_sigma_tau(u128 n, i128 &out_D, i128 &out_ST) {
+    if (n == 0) { out_D = 0; out_ST = 0; return; }
 
-    u128 r = isqrt_u128(n);
+    u128 r  = isqrt_u128(n);
+    int  nt = omp_get_max_threads();
 
-    mpz_t pD, pST, tail_D, tail_ST, r2;
-    mpz_init_set_ui(pD, 0);     mpz_init_set_ui(pST, 0);
-    mpz_init_set_ui(tail_D, 0); mpz_init_set_ui(tail_ST, 0);
-    mpz_init(r2);
+    // KEY: split [1..r] evenly, not [1..n].
+    // All ~sqrt(n) non-trivial blocks live in d in [1..r].
+    // Splitting [1..n] gave thread 0 all the work (density ~ 1/sqrt(d)).
+    // [r+1..n] has at most r trivial blocks; handle serially as a tail.
+    std::vector<i128> pD(nt, 0), pST(nt, 0);
 
-    // Parallelism is handled at the outer (per-point) level; run serially here.
-    D_ST_chunk_mpz(n, r, 1,   r, pD, pST);
-    D_ST_chunk_mpz(n, r, r+1, n, tail_D, tail_ST);
+    // If we're already inside a parallel region (points-level parallelism),
+    // run single-threaded to avoid nested OMP. Otherwise use all cores.
+    bool nested = (omp_in_parallel() != 0);
+    int active  = nested ? 1 : nt;
 
-    // out_D = 2*(pD + tail_D) - r^2
-    mpz_add(out_D, pD, tail_D);
-    mpz_mul_ui(out_D, out_D, 2);
-    mpz_set_u128(r2, r);
-    mpz_mul(r2, r2, r2);
-    mpz_sub(out_D, out_D, r2);
+    #pragma omp parallel for schedule(static) num_threads(active)
+    for (int t = 0; t < active; t++) {
+        u128 chunk = (r + (u128)active - 1) / (u128)active;
+        u128 d_lo  = (u128)t * chunk + 1;
+        u128 d_hi  = d_lo + chunk - 1;
+        if (d_hi > r) d_hi = r;
+        D_ST_chunk(n, r, d_lo, d_hi, pD[t], pST[t]);
+    }
 
-    mpz_add(out_ST, pST, tail_ST);
+    // Serial tail: d in [r+1..n] (~r trivial blocks, negligible time)
+    i128 tail_D = 0, tail_ST = 0;
+    D_ST_chunk(n, r, r + 1, n, tail_D, tail_ST);
 
-    mpz_clear(pD); mpz_clear(pST); mpz_clear(tail_D); mpz_clear(tail_ST); mpz_clear(r2);
+    i128 sum_D = tail_D, sum_ST = tail_ST;
+    for (int t = 0; t < nt; t++) { sum_D += pD[t]; sum_ST += pST[t]; }
+
+    out_D  = 2 * sum_D - (i128)r * (i128)r;
+    out_ST = sum_ST;
 }
 
-/* -----------------------------------------------------------------------
-   a_identity_fused(n) = n * D(n-1) - sigma_tau(n-1)
-   ----------------------------------------------------------------------- */
-void a_identity_fused_mpz(u128 n, mpz_t out) {
-    if (n <= 1) { mpz_set_ui(out, 0); return; }
-    mpz_t dn, st, n_z;
-    mpz_init(dn); mpz_init(st); mpz_init(n_z);
-    D_and_sigma_tau_mpz(n-1, dn, st);
-    mpz_set_u128(n_z, n);
-    mpz_mul(out, n_z, dn);
-    mpz_sub(out, out, st);
-    mpz_clear(dn); mpz_clear(st); mpz_clear(n_z);
+i128 a_identity_fused(u128 n) {
+    if (n <= 1) return 0;
+    i128 dn, st;
+    D_and_sigma_tau(n-1, dn, st);
+    return (i128)n * dn - st;
 }
 
-/* -----------------------------------------------------------------------
-   a_identity(n) = n * D(n-1) - sigma_tau(n-1)  [two separate passes]
-   ----------------------------------------------------------------------- */
-void a_identity_mpz(u128 n, mpz_t out) {
-    if (n <= 1) { mpz_set_ui(out, 0); return; }
-    mpz_t dn, st, n_z;
-    mpz_init(dn); mpz_init(st); mpz_init(n_z);
-    D_mpz(n-1, dn);
-    sigma_tau_mpz(n-1, st);
-    mpz_set_u128(n_z, n);
-    mpz_mul(out, n_z, dn);
-    mpz_sub(out, out, st);
-    mpz_clear(dn); mpz_clear(st); mpz_clear(n_z);
+i128 a_identity(u128 n) {
+    if (n <= 1) return 0;
+    return (i128)n * D(n-1) - sigma_tau(n-1);
 }
 
-/* -----------------------------------------------------------------------
-   a_brute_force: O(n^2), only used for small n in tests.
-   ----------------------------------------------------------------------- */
-void a_brute_force_mpz(u128 n, mpz_t out) {
-    mpz_set_ui(out, 0);
-    if (n < 2) return;
-    mpz_t tmp; mpz_init(tmp);
+i128 a_brute_force(u128 n) {
+    if (n < 2) return 0;
+    i128 count = 0;
     for (u128 d = 1; d < n; ++d)
         for (u128 s = 1; s <= n; ++s) {
             u128 max_k = (n - s) / d + 1;
-            if (max_k >= 2) {
-                mpz_set_u128(tmp, max_k - 1);
-                mpz_add(out, out, tmp);
-            }
+            if (max_k >= 2) count += (i128)(max_k - 1);
         }
-    mpz_clear(tmp);
+    return count;
 }
 
-/* -----------------------------------------------------------------------
-   GMP precision for asymptotic computations.
-   At n=10^19: a(n) ~ n^2*log(n)/2 ~ 10^40.  We need the error term which
-   is ~n^0.75 ~ 10^14.  So we need ~26 digits of headroom above the leading
-   term, meaning at least 55 significant decimal digits.  512 bits (~154
-   decimal digits) is more than sufficient for n up to 10^30.
-   ----------------------------------------------------------------------- */
-#define ASYM_PREC 512
+/* --- Asymptotic for a(n):
+   Via a(n) = n*D(n-1) - sigma_tau(n-1) and Dirichlet expansions:
+     D(x)         = x*log(x) + (2g-1)*x + Delta(x),    Delta(x) = O(x^{1/3})
+     sigma_tau(x) = x^2/2*log(x) + (g-1/4)*x^2 + x*Delta(x) + O(x^{4/3})
+   Exact coefficient n/4 empirically confirmed by window-averaging to kill Delta noise.
 
-/* Euler-Mascheroni gamma as a string (50 digits) */
-static const char *GAMMA_STR = "0.57721566490153286060651209008240243104215933593992";
+     a(n) = n^2/2 * log(n) + (g-3/4)*n^2 + n/4 + O(n^{2/3})
 
-/* -----------------------------------------------------------------------
-   Compute a_asymptotic(n) entirely in GMP mpf_t at ASYM_PREC bits.
-   a(n) ~ n^2/2 * log(n) + (gamma - 3/4)*n^2 + n/4
-   Result stored in out (caller must mpf_init2(out, ASYM_PREC) beforehand).
-   ----------------------------------------------------------------------- */
-static void a_asymptotic_mpf(u128 n, mpf_t out) {
-    mpf_t x, logx, gamma_em, tmp;
-    mpf_init2(x,        ASYM_PREC);
-    mpf_init2(logx,     ASYM_PREC);
-    mpf_init2(gamma_em, ASYM_PREC);
-    mpf_init2(tmp,      ASYM_PREC);
+   The O(n^{2/3}) remainder comes from the x*Delta(x) = O(x^{4/3}) term in sigma_tau,
+   which after cancellation in a(n) = n*D(n-1) - sigma_tau(n-1) leaves O(n^{2/3}).
 
-    // x = n  (set via u128 split)
-    {
-        mpz_t nz; mpz_init(nz);
-        mpz_set_u128(nz, n);
-        mpf_set_z(x, nz);
-        mpz_clear(nz);
-    }
-
-    // log(x) via bit-reduction + atanh series (no mpfr needed):
-    // n = 2^m_bits * r, 1 <= r < 2
-    // log(n) = m_bits*log(2) + 2*atanh((r-1)/(r+1))
-    {
-        uint64_t m_bits = 0;
-        {
-            u128 tmp_n = n;
-            while (tmp_n > 1) { tmp_n >>= 1; m_bits++; }
-        }
-        // r = n / 2^m_bits, so 1 <= r < 2
-        // log(n) = m_bits * log(2) + log(r)
-        // log(r) via atanh series: log(r) = 2*atanh((r-1)/(r+1))
-        // atanh(z) = z + z^3/3 + z^5/5 + ...  converges for |z| < 1
-
-        mpf_t r_f, z, z2, term2, atanh_val, log2_val, power2;
-        mpf_init2(r_f,      ASYM_PREC);
-        mpf_init2(z,        ASYM_PREC);
-        mpf_init2(z2,       ASYM_PREC);
-        mpf_init2(term2,    ASYM_PREC);
-        mpf_init2(atanh_val,ASYM_PREC);
-        mpf_init2(log2_val, ASYM_PREC);
-        mpf_init2(power2,   ASYM_PREC);
-
-        // r_f = n / 2^m_bits
-        mpf_set_ui(power2, 1);
-        mpf_mul_2exp(power2, power2, (unsigned long)m_bits);
-        mpf_div(r_f, x, power2);
-
-        // z = (r-1)/(r+1)
-        mpf_sub_ui(z, r_f, 1);   // r - 1
-        mpf_add_ui(tmp, r_f, 1); // r + 1
-        mpf_div(z, z, tmp);
-
-        // atanh(z) via series
-        mpf_mul(z2, z, z);        // z^2
-        mpf_set(atanh_val, z);    // term = z
-        mpf_set(term2, z);
-        for (unsigned long k = 3; k < 300; k += 2) {
-            mpf_mul(term2, term2, z2);          // term *= z^2
-            mpf_div_ui(tmp, term2, k);          // tmp = term / k
-            mpf_add(atanh_val, atanh_val, tmp);
-            // Check convergence: if |tmp| < 2^-(ASYM_PREC) break
-            // (lazy: just run enough iterations; 300 terms for |z|<0.5 is overkill)
-        }
-        mpf_mul_2exp(atanh_val, atanh_val, 1);  // log(r) = 2*atanh(z)
-
-        // log(2) via atanh series on r=2: log(2) = 2*atanh(1/3)
-        {
-            mpf_t z3, z32, t3;
-            mpf_init2(z3,  ASYM_PREC);
-            mpf_init2(z32, ASYM_PREC);
-            mpf_init2(t3,  ASYM_PREC);
-            mpf_set_ui(z3, 1);
-            mpf_div_ui(z3, z3, 3);   // 1/3
-            mpf_mul(z32, z3, z3);    // 1/9
-            mpf_set(log2_val, z3);
-            mpf_set(t3, z3);
-            for (unsigned long k = 3; k < 300; k += 2) {
-                mpf_mul(t3, t3, z32);
-                mpf_div_ui(tmp, t3, k);
-                mpf_add(log2_val, log2_val, tmp);
-            }
-            mpf_mul_2exp(log2_val, log2_val, 1);  // log(2)
-            mpf_clear(z3); mpf_clear(z32); mpf_clear(t3);
-        }
-
-        // logx = m_bits * log(2) + log(r)
-        mpf_mul_ui(logx, log2_val, (unsigned long)m_bits);
-        mpf_add(logx, logx, atanh_val);
-
-        mpf_clear(r_f); mpf_clear(z); mpf_clear(z2); mpf_clear(term2);
-        mpf_clear(atanh_val); mpf_clear(log2_val); mpf_clear(power2);
-    }
-
-    // gamma_em
-    mpf_set_str(gamma_em, GAMMA_STR, 10);
-
-    // out = x^2/2 * logx + (gamma - 3/4) * x^2 + x/4
-    mpf_t x2, coeff;
-    mpf_init2(x2,    ASYM_PREC);
-    mpf_init2(coeff, ASYM_PREC);
-
-    mpf_mul(x2, x, x);               // x^2
-
-    mpf_mul(out, x2, logx);          // x^2 * logx
-    mpf_div_ui(out, out, 2);         // x^2/2 * logx
-
-    mpf_set_str(coeff, "0.75", 10);
-    mpf_sub(coeff, gamma_em, coeff); // gamma - 3/4
-    mpf_mul(tmp, x2, coeff);
-    mpf_add(out, out, tmp);          // + (gamma-3/4)*x^2
-
-    mpf_div_ui(tmp, x, 4);
-    mpf_add(out, out, tmp);          // + x/4
-
-    mpf_clear(x); mpf_clear(logx); mpf_clear(gamma_em);
-    mpf_clear(tmp); mpf_clear(x2); mpf_clear(coeff);
-}
-
-/* -----------------------------------------------------------------------
-   Compute exact error = exact_value - asymptotic, returning long double.
-   The subtraction is done entirely in mpf_t at ASYM_PREC bits to avoid
-   catastrophic cancellation.  Only the final small result is cast to
-   long double (which has plenty of precision for a value ~ n^0.75).
-   ----------------------------------------------------------------------- */
-static long double subtract_asym_mpf(mpz_t exact, u128 n,
-                                      void (*asym_fn)(u128, mpf_t))
-{
-    mpf_t asym, exact_f, diff;
-    mpf_init2(asym,    ASYM_PREC);
-    mpf_init2(exact_f, ASYM_PREC);
-    mpf_init2(diff,    ASYM_PREC);
-
-    asym_fn(n, asym);
-    mpf_set_z(exact_f, exact);
-    mpf_sub(diff, exact_f, asym);
-
-    long double result = (long double)mpf_get_d(diff);  // diff ~ n^0.75, fits fine
-
-    mpf_clear(asym); mpf_clear(exact_f); mpf_clear(diff);
-    return result;
-}
-
-/* sigma_tau asymptotic: x^2/2*log(x) + (gamma-1/4)*x^2 */
-static void sigma_tau_asymptotic_mpf(u128 n, mpf_t out) {
-    // Reuse a_asymptotic_mpf structure but with different coefficients
-    // sigma_tau(n) ~ n^2/2*log(n) + (gamma - 1/4)*n^2
-    mpf_t x, logx, gamma_em, tmp, x2, coeff;
-    mpf_init2(x,        ASYM_PREC);
-    mpf_init2(logx,     ASYM_PREC);
-    mpf_init2(gamma_em, ASYM_PREC);
-    mpf_init2(tmp,      ASYM_PREC);
-    mpf_init2(x2,       ASYM_PREC);
-    mpf_init2(coeff,    ASYM_PREC);
-
-    { mpz_t nz; mpz_init(nz); mpz_set_u128(nz, n); mpf_set_z(x, nz); mpz_clear(nz); }
-
-    // Compute logx using same AGM approach — factor out into helper lambda
-    // (inline the same code for now)
-    {
-        uint64_t m_bits = 0;
-        { u128 tmp_n = n; while (tmp_n > 1) { tmp_n >>= 1; m_bits++; } }
-        mpf_t r_f, z, z2, term2, atanh_val, log2_val, power2;
-        mpf_init2(r_f,ASYM_PREC); mpf_init2(z,ASYM_PREC); mpf_init2(z2,ASYM_PREC);
-        mpf_init2(term2,ASYM_PREC); mpf_init2(atanh_val,ASYM_PREC);
-        mpf_init2(log2_val,ASYM_PREC); mpf_init2(power2,ASYM_PREC);
-        mpf_set_ui(power2,1); mpf_mul_2exp(power2,power2,(unsigned long)m_bits);
-        mpf_div(r_f,x,power2);
-        mpf_sub_ui(z,r_f,1); mpf_add_ui(tmp,r_f,1); mpf_div(z,z,tmp);
-        mpf_mul(z2,z,z); mpf_set(atanh_val,z); mpf_set(term2,z);
-        for (unsigned long k=3;k<300;k+=2){mpf_mul(term2,term2,z2);mpf_div_ui(tmp,term2,k);mpf_add(atanh_val,atanh_val,tmp);}
-        mpf_mul_2exp(atanh_val,atanh_val,1);
-        { mpf_t z3,z32,t3; mpf_init2(z3,ASYM_PREC); mpf_init2(z32,ASYM_PREC); mpf_init2(t3,ASYM_PREC);
-          mpf_set_ui(z3,1); mpf_div_ui(z3,z3,3); mpf_mul(z32,z3,z3);
-          mpf_set(log2_val,z3); mpf_set(t3,z3);
-          for(unsigned long k=3;k<300;k+=2){mpf_mul(t3,t3,z32);mpf_div_ui(tmp,t3,k);mpf_add(log2_val,log2_val,tmp);}
-          mpf_mul_2exp(log2_val,log2_val,1);
-          mpf_clear(z3);mpf_clear(z32);mpf_clear(t3); }
-        mpf_mul_ui(logx,log2_val,(unsigned long)m_bits); mpf_add(logx,logx,atanh_val);
-        mpf_clear(r_f);mpf_clear(z);mpf_clear(z2);mpf_clear(term2);
-        mpf_clear(atanh_val);mpf_clear(log2_val);mpf_clear(power2);
-    }
-
-    mpf_set_str(gamma_em, GAMMA_STR, 10);
-    mpf_mul(x2,x,x);
-    mpf_mul(out,x2,logx); mpf_div_ui(out,out,2);
-    mpf_set_str(coeff,"0.25",10); mpf_sub(coeff,gamma_em,coeff);
-    mpf_mul(tmp,x2,coeff); mpf_add(out,out,tmp);
-
-    mpf_clear(x);mpf_clear(logx);mpf_clear(gamma_em);
-    mpf_clear(tmp);mpf_clear(x2);mpf_clear(coeff);
-}
-
-/* D asymptotic: x*log(x) + (2*gamma-1)*x */
-static void D_asymptotic_mpf(u128 n, mpf_t out) {
-    mpf_t x, logx, gamma_em, tmp, coeff;
-    mpf_init2(x,        ASYM_PREC);
-    mpf_init2(logx,     ASYM_PREC);
-    mpf_init2(gamma_em, ASYM_PREC);
-    mpf_init2(tmp,      ASYM_PREC);
-    mpf_init2(coeff,    ASYM_PREC);
-
-    { mpz_t nz; mpz_init(nz); mpz_set_u128(nz, n); mpf_set_z(x, nz); mpz_clear(nz); }
-
-    {
-        uint64_t m_bits = 0;
-        { u128 tmp_n = n; while (tmp_n > 1) { tmp_n >>= 1; m_bits++; } }
-        mpf_t r_f,z,z2,term2,atanh_val,log2_val,power2;
-        mpf_init2(r_f,ASYM_PREC);mpf_init2(z,ASYM_PREC);mpf_init2(z2,ASYM_PREC);
-        mpf_init2(term2,ASYM_PREC);mpf_init2(atanh_val,ASYM_PREC);
-        mpf_init2(log2_val,ASYM_PREC);mpf_init2(power2,ASYM_PREC);
-        mpf_set_ui(power2,1);mpf_mul_2exp(power2,power2,(unsigned long)m_bits);
-        mpf_div(r_f,x,power2);
-        mpf_sub_ui(z,r_f,1);mpf_add_ui(tmp,r_f,1);mpf_div(z,z,tmp);
-        mpf_mul(z2,z,z);mpf_set(atanh_val,z);mpf_set(term2,z);
-        for(unsigned long k=3;k<300;k+=2){mpf_mul(term2,term2,z2);mpf_div_ui(tmp,term2,k);mpf_add(atanh_val,atanh_val,tmp);}
-        mpf_mul_2exp(atanh_val,atanh_val,1);
-        { mpf_t z3,z32,t3; mpf_init2(z3,ASYM_PREC);mpf_init2(z32,ASYM_PREC);mpf_init2(t3,ASYM_PREC);
-          mpf_set_ui(z3,1);mpf_div_ui(z3,z3,3);mpf_mul(z32,z3,z3);
-          mpf_set(log2_val,z3);mpf_set(t3,z3);
-          for(unsigned long k=3;k<300;k+=2){mpf_mul(t3,t3,z32);mpf_div_ui(tmp,t3,k);mpf_add(log2_val,log2_val,tmp);}
-          mpf_mul_2exp(log2_val,log2_val,1);
-          mpf_clear(z3);mpf_clear(z32);mpf_clear(t3); }
-        mpf_mul_ui(logx,log2_val,(unsigned long)m_bits);mpf_add(logx,logx,atanh_val);
-        mpf_clear(r_f);mpf_clear(z);mpf_clear(z2);mpf_clear(term2);
-        mpf_clear(atanh_val);mpf_clear(log2_val);mpf_clear(power2);
-    }
-
-    mpf_set_str(gamma_em, GAMMA_STR, 10);
-    // out = x*logx + (2*gamma-1)*x
-    mpf_mul(out, x, logx);
-    mpf_mul_ui(coeff, gamma_em, 2); mpf_sub_ui(coeff, coeff, 1);
-    mpf_mul(tmp, x, coeff);
-    mpf_add(out, out, tmp);
-
-    mpf_clear(x);mpf_clear(logx);mpf_clear(gamma_em);mpf_clear(tmp);mpf_clear(coeff);
-}
-
-/* Keep old __float128 path for the asymptotic check (used nowhere critical now) */
+   PRECISION: n^2/2*log(n) ~ n^2 * 1.15*log10(n) requires ~2*log10(n)+1 significant digits.
+   At n=10^15 that is ~31 digits. We use __float128 (113-bit mantissa, ~34 digits) with
+   logq() from libquadmath for a correctly-rounded __float128 logarithm.              */
 __float128 a_asymptotic(u128 n) {
     const __float128 gamma_em = 0.57721566490153286060651209008240Q;
     __float128 x = (__float128)n;
@@ -663,112 +355,122 @@ __float128 a_asymptotic(u128 n) {
     return x*x/2.0Q * logx + (gamma_em - 0.75Q) * x*x + x/4.0Q;
 }
 
-/* Legacy shim — no longer used by exact_err but kept for any callers */
-static void asym_to_mpz_and_frac(__float128 asym, mpz_t asym_int,
-                                  long double &frac_out)
-{
-    char buf[80];
-#ifdef NO_QUADMATH
-    snprintf(buf, sizeof(buf), "%.35Lf", (long double)asym);
-#else
-    quadmath_snprintf(buf, sizeof(buf), "%.35Qf", asym);
-#endif
-    mpf_t fasym; mpf_init2(fasym, 200);
-    mpf_set_str(fasym, buf, 10);
-    mpz_set_f(asym_int, fasym);
-    mpf_t fint; mpf_init2(fint, 200);
-    mpf_set_z(fint, asym_int);
-    mpf_sub(fasym, fasym, fint);
-    frac_out = (long double)mpf_get_d(fasym);
-    mpf_clear(fasym); mpf_clear(fint);
+/* ======== Tests ======== */
+
+void run_sequence_test() {
+    uint64_t expected[] = {0, 1, 4, 9, 17, 27, 41, 57, 77, 100, 127};
+    printf("--- A078567 sequence check ---\n");
+    for (u128 i = 0; i <= 10; ++i) {
+        i128 r = a_hoying(i);
+        printf("a(%lu): %s (%lu)\n", (unsigned long)(i+1),
+            (uint64_t)r == expected[(int)i] ? "PASS" : "FAIL", (uint64_t)r);
+    }
 }
 
-/* -----------------------------------------------------------------------
-   exact_err(n): a(n) - a_asymptotic(n)
-   exact_err_sigma(n): sigma_tau(n) - sigma_tau_asymptotic(n)
-   exact_err_D(n): D(n) - D_asymptotic(n)
-   exact_err_combo(n): (exact_err_sigma(n) - exact_err(n+1)) / n
-   All use full GMP precision to avoid catastrophic cancellation.
-   ----------------------------------------------------------------------- */
+void run_identity_test(u128 cutoff) {
+    u128 limit = (cutoff < 300) ? cutoff : (u128)300;
+    printf("\n--- Identity check (all methods vs brute force, n <= %s) ---\n", u128_to_str(limit).c_str());
+    bool ok = true;
+    for (u128 n = 2; n <= limit; n++) {
+        i128 h  = a_hoying(n-1);
+        i128 id = a_identity(n);
+        i128 fu = a_identity_fused(n);
+        i128 bf = a_brute_force(n);
+        if (h != id || h != bf || h != fu) {
+            printf("MISMATCH n=%s: hoying=%s identity=%s fused=%s brute=%s\n",
+                u128_to_str(n).c_str(), i128_to_str(h).c_str(), i128_to_str(id).c_str(),
+                i128_to_str(fu).c_str(), i128_to_str(bf).c_str());
+            ok = false;
+        }
+    }
+    if (ok) printf("All n in [2,%s]: PASS\n", u128_to_str(limit).c_str());
+}
+
 long double exact_err(u128 n) {
-    mpz_t an; mpz_init(an);
-    a_hoying_mpz(n - 1, an);
-    long double result = subtract_asym_mpf(an, n, a_asymptotic_mpf);
-    mpz_clear(an);
-    return result;
+    // Use a_hoying(n-1) directly -- simpler inner loop (no multiply) than
+    // a_identity_fused, and already verified correct vs brute force.
+    // i128 max ~ 1.7e38; caller must ensure n <= I128_SAFE_LIMIT.
+    i128       an        = a_hoying(n - 1);
+    __float128 asym128   = a_asymptotic(n);
+    i128       asym_int  = (i128)asym128;
+    __float128 asym_frac = asym128 - (__float128)asym_int;
+    return (long double)(an - asym_int) + (long double)asym_frac;
 }
 
+// Max n where a(n) fits in i128: a(n) ~ n^2/2*log(n) < 1.7e38 => n <~ 3e18
+// Use 2e18 as safe limit to keep intermediate arithmetic well clear of overflow.
+static const u128 I128_SAFE_LIMIT = (u128)2000000000000000000ULL;
+
+/* --- Exact error for sigma_tau(n):
+   sigma_tau(n) ~ n^2/2*log(n) + (g-1/4)*n^2  +  err_sigma
+   (the constant differs from a(n) by exactly +1/2 * n^2)             */
 long double exact_err_sigma(u128 n) {
-    mpz_t st; mpz_init(st);
-    sigma_tau_mpz(n, st);
-    long double result = subtract_asym_mpf(st, n, sigma_tau_asymptotic_mpf);
-    mpz_clear(st);
-    return result;
+    const __float128 gamma_em = 0.57721566490153286060651209008240Q;
+    __float128 x = (__float128)n;
+#ifdef NO_QUADMATH
+    __float128 logx = (__float128)logl((long double)x);
+#else
+    __float128 logx = logq(x);
+#endif
+    __float128 asym = x*x/2.0Q * logx + (gamma_em - 0.25Q) * x*x;
+    i128 st       = sigma_tau(n);
+    i128 asym_int = (i128)asym;
+    return (long double)(st - asym_int) + (long double)(asym - (__float128)asym_int);
 }
 
+/* --- Exact error for "recovered D" = (sigma_tau(n) - a(n+1)) / n
+   By the identity a(n+1) = (n+1)*D(n) - sigma_tau(n), we have:
+     D(n) = (a(n+1) + sigma_tau(n)) / (n+1)  ... uses integer division, messy.
+   Cleaner: just look at err_sigma - err_a as a combined oscillation,
+   divided by n, and compare its magnitude to err_D directly.
+   err_recovered_D(n) = (err_sigma(n) - err_a(n+1)) / n
+   vs err_D(n) = D(n) - [n*log(n) + (2g-1)*n]                          */
 long double exact_err_D(u128 n) {
-    mpz_t d; mpz_init(d);
-    D_mpz(n, d);
-    long double result = subtract_asym_mpf(d, n, D_asymptotic_mpf);
-    mpz_clear(d);
-    return result;
+    const __float128 gamma_em = 0.57721566490153286060651209008240Q;
+    __float128 x = (__float128)n;
+#ifdef NO_QUADMATH
+    __float128 logx = (__float128)logl((long double)x);
+#else
+    __float128 logx = logq(x);
+#endif
+    __float128 asym = x * logx + (2.0Q*gamma_em - 1.0Q) * x;
+    i128 d        = D(n);
+    i128 asym_int = (i128)asym;
+    return (long double)(d - asym_int) + (long double)(asym - (__float128)asym_int);
 }
 
+/* --- Combined: (sigma_tau(n) - a(n+1)) / n  recovers D(n) exactly.
+   Its error relative to D's asymptotic:
+     err_combo(n) = (err_sigma(n) - err_a(n+1)) / n
+   We compute this as exact_err_sigma(n)/n - exact_err(n+1)/n.          */
 long double exact_err_combo(u128 n) {
     long double es = exact_err_sigma(n);
     long double ea = exact_err(n + 1);
     return (es - ea) / (long double)n;
 }
 
-/* -----------------------------------------------------------------------
-   Tests
-   ----------------------------------------------------------------------- */
-void run_sequence_test() {
-    uint64_t expected[] = {0, 1, 4, 9, 17, 27, 41, 57, 77, 100, 127};
-    printf("--- A078567 sequence check ---\n");
-    mpz_t r; mpz_init(r);
-    for (u128 i = 0; i <= 10; ++i) {
-      a_hoying_mpz(i, r);
-        uint64_t val = (uint64_t)mpz_get_ui(r);
-        printf("a(%lu): %s (%lu)\n", (unsigned long)(i+1),
-            val == expected[(int)i] ? "PASS" : "FAIL", val);
-    }
-    mpz_clear(r);
-}
 
-void run_identity_test(u128 cutoff) {
-    u128 limit = (cutoff < 300) ? cutoff : (u128)300;
-    printf("\n--- Identity check (all methods vs brute force, n <= %s) ---\n",
-           u128_to_str(limit).c_str());
-    bool ok = true;
-    mpz_t h, id, fu, bf;
-    mpz_init(h); mpz_init(id); mpz_init(fu); mpz_init(bf);
-    for (u128 n = 2; n <= limit; n++) {
-      a_hoying_mpz(n-1, h);
-        a_identity_mpz(n, id);
-        a_identity_fused_mpz(n, fu);
-        a_brute_force_mpz(n, bf);
-        if (mpz_cmp(h, id) != 0 || mpz_cmp(h, bf) != 0 || mpz_cmp(h, fu) != 0) {
-            char *sh = mpz_get_str(nullptr,10,h);
-            char *si = mpz_get_str(nullptr,10,id);
-            char *sf = mpz_get_str(nullptr,10,fu);
-            char *sb = mpz_get_str(nullptr,10,bf);
-            printf("MISMATCH n=%s: hoying=%s identity=%s fused=%s brute=%s\n",
-                u128_to_str(n).c_str(), sh, si, sf, sb);
-            free(sh); free(si); free(sf); free(sb);
-            ok = false;
-        }
-    }
-    if (ok) printf("All n in [2,%s]: PASS\n", u128_to_str(limit).c_str());
-    mpz_clear(h); mpz_clear(id); mpz_clear(fu); mpz_clear(bf);
-}
+/* --- Empirical theta estimate ---
+   From err_a = O(n^{theta + 1/2}), we estimate theta via:
+     theta_point(n) = log|err_a| / log(n) - 1/2
+     theta_slope    = slope of log|err_a| vs log(n) between consecutive pts - 1/2
+   Both are noisy due to sign oscillation in err_a.
 
-/* -----------------------------------------------------------------------
-   Sample-point generation (unchanged)
-   ----------------------------------------------------------------------- */
+   Better estimate: track the running envelope max|err_a| over [n0..n],
+   regress log(env) ~ (theta+1/2)*log(n) + C on all data, and report
+   the OLS theta.  Also report the running-max column directly.
+
+   Theory:
+     Divisor conjecture (theta=1/4):   err_a = O(n^{3/4})
+     Huxley proven    (theta=131/416): err_a = O(n^{339/416}) ~ O(n^{0.815}) */
+
+/* Generate the set of sample points from n_start up to max_n,
+   multiplicatively spaced by ratio (a double, e.g. 10.0 or 2.0).
+   We always start at 1000 and include max_n exactly.               */
 static std::vector<u128> make_sample_ns(u128 max_n, double ratio) {
     if (ratio < 1.001) ratio = 1.001;
     std::vector<u128> ns;
+    // Walk in log space: n_{k+1} = round(n_k * ratio), but use double accumulator
     double acc = 1000.0;
     u128   prev = 0;
     while (true) {
@@ -785,111 +487,188 @@ static std::vector<u128> make_sample_ns(u128 max_n, double ratio) {
     return ns;
 }
 
-/* -----------------------------------------------------------------------
-   Row result (unchanged structure)
-   ----------------------------------------------------------------------- */
+/* Row result from computing one sample point -- filled in parallel, printed in order */
 struct RowResult {
     u128        n;
-    bool        skip;          // reserved (mpz is unbounded, skip never fires now)
+    bool        skip;          // overflows i128
     bool        mismatch;      // hoying vs fused disagree
     std::string mismatch_msg;
     bool        verified;
     long double err_a;
-    long double err_d;         // NAN if not computed (above cutoff)
-    long double err_combo;     // NAN if not computed (above cutoff)
+    long double err_d;     // NAN if not computed (above cutoff)
+    long double err_combo; // NAN if not computed (above cutoff)
     long double logn;
 };
 
-/* -----------------------------------------------------------------------
-   HDF5 output: flat file, one dataset per column.
+void run_asymptotic_table(u128 cutoff, u128 max_n, double ratio) {
+    printf("\n--- Asymptotic error and empirical theta ---\n");
+    printf("a(n) = n^2/2*log(n) + (g-3/4)*n^2 + n/4  +  err_osc\n");
+    printf("err_osc = O(n^{theta+1/2}).  ratio=%.4f  cutoff=%s\n",
+           ratio, u128_to_str(cutoff).c_str());
+    printf("Below cutoff: fused verified vs hoying.  Above: fused only (trusted).\n");
 
-   Schema:
-     n_str       : variable-length UTF-8 string  — decimal n
-     err_a       : float64
-     err_d       : float64  (NaN when not computed)
-     err_combo   : float64  (NaN when not computed)
-     logn        : float64
-     theta_slope : float64  (NaN when unavailable)
-     env_max     : float64  — running envelope max(|err_a|) up to this row
-     method      : variable-length UTF-8 string  — "verified" | "fused"
+    std::vector<u128> ns = make_sample_ns(max_n, ratio);
+    int npts = (int)ns.size();
 
-   Only valid (non-skipped, non-mismatch) rows are written.
-   ----------------------------------------------------------------------- */
-static void write_hdf5(const char                    *path,
-                       const std::vector<std::string> &col_n,
-                       const std::vector<double>      &col_err_a,
-                       const std::vector<double>      &col_err_d,
-                       const std::vector<double>      &col_err_combo,
-                       const std::vector<double>      &col_logn,
-                       const std::vector<double>      &col_theta,
-                       const std::vector<double>      &col_env_max,
-                       const std::vector<std::string> &col_method)
-{
-    hsize_t nrows = (hsize_t)col_err_a.size();
-    if (nrows == 0) { fprintf(stderr, "HDF5: no rows to write.\n"); return; }
+    printf("Computing %d sample points on %d threads...\n\n", npts, omp_get_max_threads());
 
-    hid_t file = H5Fcreate(path, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
-    if (file < 0) { fprintf(stderr, "HDF5: cannot create %s\n", path); return; }
+    // Without this, stdout is fully buffered when piped (e.g. tee), so rows
+    // accumulate silently and dump all at once at exit.  Line-buffering means
+    // each completed row flushes immediately.
+    setvbuf(stdout, nullptr, _IOLBF, 0);
 
-    hid_t space = H5Screate_simple(1, &nrows, nullptr);
+    printf("%20s  %12s  %12s  %12s  %12s  %12s  %s\n",
+           "n", "err_a/n^.75", "env_max/n^.75", "err_D/n^.25", "combo/n^.25", "θ_slope", "method");
+    fflush(stdout);
 
-    // Write a flat double dataset.
-    auto write_f64 = [&](const char *name, const std::vector<double> &v) {
-        hid_t ds = H5Dcreate2(file, name, H5T_NATIVE_DOUBLE, space,
-                               H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-        H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, v.data());
-        H5Dclose(ds);
-    };
+    // Parallelize across points. D_and_sigma_tau detects omp_in_parallel()
+    // and runs serially inside, so no nested-OMP conflict.
+    std::vector<RowResult> rows(npts);
 
-    // Write a variable-length string dataset.
-    auto write_vls = [&](const char *name, const std::vector<std::string> &v) {
-        hid_t vlt = H5Tcopy(H5T_C_S1);
-        H5Tset_size(vlt, H5T_VARIABLE);
-        H5Tset_strpad(vlt, H5T_STR_NULLTERM);
-        H5Tset_cset(vlt, H5T_CSET_UTF8);
-        std::vector<const char *> ptrs(v.size());
-        for (size_t i = 0; i < v.size(); i++) ptrs[i] = v[i].c_str();
-        hid_t ds = H5Dcreate2(file, name, vlt, space,
-                               H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-        H5Dwrite(ds, vlt, H5S_ALL, H5S_ALL, H5P_DEFAULT, ptrs.data());
-        H5Dclose(ds);
-        H5Tclose(vlt);
-    };
+    // Progress during compute: atomic counter incremented by each thread as it
+    // finishes a point.  A dedicated render call after each increment keeps the
+    // bar live during the slow parallel phase rather than only after it.
+    g_progress.init(ns);
 
-    write_vls("n_str",        col_n);
-    write_f64("err_a",        col_err_a);
-    write_f64("err_d",        col_err_d);
-    write_f64("err_combo",    col_err_combo);
-    write_f64("logn",         col_logn);
-    write_f64("theta_slope",  col_theta);
-    write_f64("env_max",      col_env_max);
-    write_vls("method",       col_method);
+    #pragma omp parallel for schedule(dynamic,1) num_threads(omp_get_max_threads())
+    for (int i = 0; i < npts; i++) {
+        u128 n = ns[i];
+        RowResult &r = rows[i];
+        r.n        = n;
+        r.skip     = false;
+        r.mismatch = false;
+        r.verified = (n <= cutoff);
 
-    H5Sclose(space);
-    H5Fclose(file);
-    printf("\nResults written to %s  (%llu rows)\n", path, (unsigned long long)nrows);
+        if (n > I128_SAFE_LIMIT) {
+            r.skip = true;
+            g_progress.tick(sqrt((double)n));
+            continue;
+        }
+
+        if (r.verified) {
+            i128 hoy = a_hoying(n-1);
+            i128 fus = a_identity_fused(n);
+            if (hoy != fus) {
+                r.mismatch = true;
+                r.mismatch_msg = "MISMATCH hoying=" + i128_to_str(hoy)
+                               + " fused=" + i128_to_str(fus);
+                g_progress.tick(sqrt((double)n));
+                continue;
+            }
+        }
+
+        r.err_a     = exact_err(n);
+        // Only compute D/combo columns at or below cutoff -- they each
+        // require a full extra O(sqrt(n)) pass and aren't needed for theta.
+        if (r.verified) {
+            r.err_d     = exact_err_D(n);
+            r.err_combo = exact_err_combo(n);
+        } else {
+            r.err_d     = NAN;
+            r.err_combo = NAN;
+        }
+        r.logn      = logl((long double)n);
+        g_progress.tick(sqrt((double)n));
+    }
+
+    g_progress.finish();
+
+    // Print in order (serial), accumulate running stats
+    long double prev_err  = 0.0L, prev_logn = 0.0L;
+    long double env_max   = 0.0L;
+
+    long double sum1  = 0.0L, sumx = 0.0L, sumy  = 0.0L;
+    long double sumxx = 0.0L, sumxy = 0.0L;
+    int reg_cnt = 0;
+
+    for (int i = 0; i < npts; i++) {
+        const RowResult &r = rows[i];
+        u128 n = r.n;
+
+        if (r.skip) {
+            printf("%20s  [skipped: overflows i128]\n", u128_to_str(n).c_str());
+            continue;
+        }
+        if (r.mismatch) {
+            printf("%20s  %s\n", u128_to_str(n).c_str(), r.mismatch_msg.c_str());
+            prev_err = 0.0L; prev_logn = 0.0L;
+            continue;
+        }
+
+        long double x    = (long double)n;
+        long double n75  = powl(x, 0.75L);
+        long double n25  = powl(x, 0.25L);
+        long double logn = r.logn;
+
+        long double err_a     = r.err_a;
+        long double err_d     = r.err_d;
+        long double err_combo = r.err_combo;
+        long double abs_err   = fabsl(err_a);
+
+        if (abs_err > env_max) env_max = abs_err;
+
+        long double theta_sl = NAN;
+        if (prev_err != 0.0L && err_a != 0.0L && prev_logn > 0.0L)
+            theta_sl = (logl(abs_err) - logl(fabsl(prev_err)))
+                       / (logn - prev_logn) - 0.5L;
+
+        // Outlier filter: skip points where |err_a|/n^0.75 > 10 (overflow artifact)
+        if (abs_err > 0.0L && fabsl(err_a / n75) < 10.0L) {
+            long double loge = logl(abs_err);
+            sum1  += 1.0L; sumx  += logn;  sumy  += loge;
+            sumxx += logn * logn;           sumxy += logn * loge;
+            reg_cnt++;
+        }
+
+        const char *method = r.verified ? "verified" : "fused";
+        char col_d[16], col_combo[16];
+        if (isnan(err_d))     snprintf(col_d,     sizeof(col_d),     "%12s", "-");
+        else                  snprintf(col_d,     sizeof(col_d),     "%12.5Lf", (long double)(err_d / n25));
+        if (isnan(err_combo)) snprintf(col_combo, sizeof(col_combo), "%12s", "-");
+        else                  snprintf(col_combo, sizeof(col_combo), "%12.5Lf", (long double)(err_combo / n25));
+        printf("%20s  %12.5Lf  %12.5Lf  %s  %s",
+            u128_to_str(n).c_str(),
+            err_a / n75, env_max / n75,
+            col_d, col_combo);
+        if (!isnan(theta_sl))
+            printf("  %+12.4Lf", theta_sl);
+        else
+            printf("  %12s", "     -");
+        printf("  %s\n", method);
+
+        prev_err  = err_a;
+        prev_logn = logn;
+    }
+
+    printf("\n  Columns normalized so bounded value => theta <= 1/4 for a (n^3/4)\n");
+    printf("  and theta <= 1/4 for D, combo (n^1/4, since err_D = O(n^{theta-1/2})*n)\n");
+    printf("  theta=131/416~0.315 (Huxley bound)\n");
+
+    if (reg_cnt >= 3) {
+        long double denom = sum1 * sumxx - sumx * sumx;
+        if (fabsl(denom) > 0.0L) {
+            long double alpha     = (sum1 * sumxy - sumx * sumy) / denom;
+            long double theta_ols = alpha - 0.5L;
+            printf("\n  OLS regression log|err_a| ~ alpha*log(n) + C over %d pts:\n", reg_cnt);
+            printf("    alpha = %.6Lf  =>  theta_OLS = alpha - 0.5 = %.6Lf\n", alpha, theta_ols);
+            printf("    (compare: conjecture theta=0.25, Huxley theta<=0.315)\n");
+        }
+    }
 }
 
-
-/* -----------------------------------------------------------------------
-   main
-   ----------------------------------------------------------------------- */
 int main(int argc, char **argv) {
-    // Usage: ./delta [N [cutoff [ratio [output.h5]]]]
-    // N:        max n for asymptotic table; default 10^16
-    // cutoff:   verify hoying vs fused up to this n; default 10^4
-    // ratio:    multiplicative step between sample points; default 10.0
-    // output:   HDF5 output path; default results.h5
-    u128        N      = 0;
-    u128        cutoff = (u128)10000ULL;
-    double      ratio  = 10.0;
-    const char *h5path = "results.h5";
+    // Usage: ./delta [N [cutoff [ratio]]]
+    // N:      max n for asymptotic table (u128); default 10^16
+    // cutoff: verify hoying vs fused up to this n; default 10^4
+    // ratio:  multiplicative step between sample points; default 10.0
+    //         (use 2.0 for ~3x more points/decade, sqrt(10)~3.162 for 2x)
+    u128   N      = 0;
+    u128   cutoff = (u128)10000ULL;
+    double ratio  = 10.0;
 
     if (argc >= 2) N      = parse_u128(argv[1]);
     if (argc >= 3) cutoff = parse_u128(argv[2]);
     if (argc >= 4) ratio  = atof(argv[3]);
-    if (argc >= 5) h5path = argv[4];
-
     if (ratio < 1.001) {
         fprintf(stderr, "ratio must be > 1.001\n");
         return 1;
@@ -899,14 +678,19 @@ int main(int argc, char **argv) {
 
     run_sequence_test();
     run_identity_test(cutoff);
-    run_asymptotic_table(cutoff, max_table_n, ratio, h5path);
+    run_asymptotic_table(cutoff, max_table_n, ratio);
 
     if (!N) return 0;
 
-    // Single-point detail for explicit N
+    if (N > I128_SAFE_LIMIT) {
+        printf("\nNote: N=%s exceeds i128 safe limit (~3e18). a(N) overflows; upgrade accumulator to go higher.\n",
+            u128_to_str(N).c_str());
+        return 1;
+    }
     long double x    = (long double)N;
     long double logN = logl(x);
     long double err  = exact_err(N);
+
     long double theta_pt = (err != 0.0L) ? logl(fabsl(err)) / logN - 0.5L : 0.0L;
 
     printf("\n--- N = %s ---\n", u128_to_str(N).c_str());
@@ -928,400 +712,4 @@ int main(int argc, char **argv) {
     }
 
     return 0;
-}
-
-
-// ---------- utils ----------
-static inline u128 u128_from_u64(uint64_t v){ return (u128)v; }
-
-static std::string u128_to_string(u128 v) {
-    if (v == 0) return "0";
-    std::string s;
-    while (v) {
-        unsigned digit = (unsigned)(v % 10);
-        s.push_back(char('0' + digit));
-        v /= 10;
-    }
-    std::reverse(s.begin(), s.end());
-    return s;
-}
-
-// ---------- D(n) and sigma_tau(n) in u128 ----------
-/*
-  Computes D(n) = sum_{m=1}^n tau(m)  and
-           ST(n)= sum_{m=1}^n m * tau(m)
-  Both returned by reference. Uses block/hyperbola method.
-
-  PERFORMANCE: u128/u128 division compiles to a ~20-40 cycle software call
-  (__udivti3), vs a single hardware instruction for u64/u64.  Since n <= 10^19
-  fits in ull (2^64 ~ 1.84e19), we use ull arithmetic for all divisions and
-  only promote to u128 for the accumulator multiplications that can overflow u64.
-*/
-static void D_and_sigma_tau_u128(u128 n, u128 &out_D, u128 &out_ST) {
-    if (n == 0) { out_D = 0; out_ST = 0; return; }
-
-    u128 r128 = isqrt_u128(n);
-
-    u128 pD  = 0;
-    u128 pST = 0;
-
-    // Fast path: n fits in ull -> use hardware division throughout.
-    // All of our supported N (up to 10^19) satisfy this since 2^64 ~ 1.84e19.
-    if (n <= (u128)~0ULL) {
-        ull  n64 = (ull)n;
-        ull  r64 = (ull)r128;
-
-        ull d = 1;
-        while (d <= n64) {
-            ull q  = n64 / d;          // hardware div
-            ull hi = n64 / q;          // hardware div
-
-            // bsumd = (d + hi) * (hi - d + 1) / 2  -- fits in u128
-            u128 len = (u128)(hi - d + 1);
-            u128 a   = (u128)(d + hi);
-            if ((a & 1) == 0) a >>= 1;
-            else              len >>= 1;
-            u128 bsumd = a * len;
-
-            // tq = q*(q+1)/2  -- fits in u128 (q <= ~3.16e9 when d>r, q<=n64 when d=1)
-            u128 tq;
-            if ((q & 1) == 0) tq = ((u128)(q >> 1)) * (u128)(q + 1);
-            else               tq = (u128)q * (u128)((q + 1) >> 1);
-
-            pST += tq * bsumd;
-
-            if (d <= r64) {
-                ull hi_small = (hi <= r64) ? hi : r64;
-                u128 cnt = (u128)(hi_small - d + 1);
-                pD += cnt * (u128)q;
-            }
-
-            d = hi + 1;
-        }
-    } else {
-        // Slow fallback for hypothetical n > 2^64 (not currently reachable).
-        u128 r = r128;
-        u128 d = 1;
-        while (d <= n) {
-            u128 q  = n / d;
-            u128 hi = n / q;
-            u128 len = hi - d + 1;
-            u128 a   = d + hi;
-            if ((a & 1) == 0) a >>= 1;
-            else              len >>= 1;
-            u128 bsumd = a * len;
-            u128 tq;
-            if ((q & 1) == 0) tq = (q >> 1) * (q + 1);
-            else               tq = q * ((q + 1) >> 1);
-            pST += tq * bsumd;
-            if (d <= r) {
-                u128 hi_small = (hi <= r) ? hi : r;
-                pD += (hi_small - d + 1) * q;
-            }
-            d = hi + 1;
-        }
-    }
-
-    u128 r2 = r128 * r128;
-    out_D  = 2 * pD - r2;
-    out_ST = pST;
-}
-
-/* sigma_tau_u128: wrapper */
-static u128 sigma_tau_u128(u128 n) {
-    u128 Dval, ST;
-    D_and_sigma_tau_u128(n, Dval, ST);
-    return ST;
-}
-
-/* D_u128: wrapper */
-static u128 D_u128(u128 n) {
-    u128 Dval, ST;
-    D_and_sigma_tau_u128(n, Dval, ST);
-    return Dval;
-}
-
-// ---------- a_identity_fused using u128 ----------
-// a(n) = n * D(n-1) - sigma_tau(n-1)
-static i128 a_identity_fused_u128(u128 n) {
-    if (n <= 1) return (i128)0;
-    u128 Dval, ST;
-    D_and_sigma_tau_u128(n - 1, Dval, ST);
-    // be careful with signedness: result can be positive and fits in signed __int128
-    i128 res = (i128)n * (i128)Dval - (i128)ST;
-    return res;
-}
-
-// ---------- a_hoying (direct formula) in u128 ----------
-// Convert your original a_hoying formula to u128 arithmetic.
-// Slight rearrangements reduce intermediate sizes.
-i128 a_hoying_u128(u128 n) {
-    if (n == 0) return (i128)0;
-    u128 r = isqrt_u128(n);
-    // term1 = r^2 * ( (1+r)^2 - 4*(n+1) ) / 4
-    u128 onepr = r + 1;
-    // compute (1+r)^2 and 4*(n+1)
-    u128 t1 = onepr * onepr;
-    u128 t2 = 4 * (n + 1);
-    // (t1 - t2) may be negative in signed; do signed arithmetic carefully below
-    // We'll compute term1 as signed __int128 to handle negative result
-    i128 term1 = (i128)r * (i128)r * ((i128)t1 - (i128)t2) / 4;
-
-    // sum_part = sum_{i=1}^{r} q * (2*(n+1) - i*(1+q)) where q = floor(n/i)
-    i128 sum_part = 0;
-    for (u128 i = 1; i <= r; ++i) {
-        u128 q = n / i;
-        // inner = q * (2*(n+1) - i*(1+q))
-        // compute A = 2*(n+1)
-        i128 A = (i128)2 * (i128)(n + 1);
-        i128 B = (i128)i * ((i128)1 + (i128)q);
-        i128 inner = (i128)q * (A - B);
-        sum_part += inner;
-    }
-    i128 out = term1 + sum_part;
-    return out;
-}
-
-
-// -----------------------------------------------------------------------
-// __float128 asymptotic for a(n): a(n) ~ n^2/2*log(n) + (gamma-3/4)*n^2 + n/4
-// Uses long double log cast to __float128 — sufficient for n <= 3e18 since
-// the error term is ~n^0.75 ~1e13 and long double log has ~18 digits of n ~1e18.
-// -----------------------------------------------------------------------
-static __float128 a_asymptotic_f128(u128 n) {
-    if (n == 0) return (__float128)0.0;
-    __float128 x    = (__float128)n;
-    __float128 logx = (__float128)logl((long double)n);
-    const __float128 gamma128 = (__float128)0.577215664901532860606512090082402431L;
-    // n^2/2 * log(n) + (gamma - 3/4)*n^2 + n/4
-    __float128 x2   = x * x;
-    return x2 / (__float128)2.0 * logx
-         + (gamma128 - (__float128)0.75) * x2
-         + x / (__float128)4.0;
-}
-
-// __float128 asymptotic for D(n): D(n) ~ n*log(n) + (2*gamma-1)*n
-static __float128 D_asymptotic_f128(u128 n) {
-    if (n == 0) return (__float128)0.0;
-    __float128 x    = (__float128)n;
-    __float128 logx = (__float128)logl((long double)n);
-    const __float128 gamma128 = (__float128)0.577215664901532860606512090082402431L;
-    return x * logx + ((__float128)2.0 * gamma128 - (__float128)1.0) * x;
-}
-
-// Helper: exact_integer - __float128_asymptotic -> long double residual.
-static inline long double residual_f128(i128 exact_int, __float128 asym) {
-    i128      asym_floor = (i128)asym;
-    __float128 asym_frac = asym - (__float128)asym_floor;
-    i128      int_diff   = exact_int - asym_floor;
-    return (long double)int_diff - (long double)asym_frac;
-}
-
-// -----------------------------------------------------------------------
-// Fused single-pass computation of all three errors for one sample point.
-//
-// Does ONE call to D_and_sigma_tau_u128(n-1) to get D(n-1) and ST(n-1),
-// then derives a(n) = n*D(n-1) - ST(n-1).
-// Also computes err_D and err_combo from one additional call for D(n)/ST(n).
-//
-// For points above cutoff: only err_a is needed; below cutoff all three.
-// Pass compute_d_combo=false above cutoff to skip the second O(sqrt n) call.
-// -----------------------------------------------------------------------
-static void compute_all_errors_u128(u128 n,
-                                     bool compute_d_combo,
-                                     long double &err_a,
-                                     long double &err_d,
-                                     long double &err_combo)
-{
-    if (n <= 1) { err_a = 0.0L; err_d = NAN; err_combo = NAN; return; }
-
-    // Single O(sqrt n) call: D(n-1) and ST(n-1)
-    u128 Dval_nm1, ST_nm1;
-    D_and_sigma_tau_u128(n - 1, Dval_nm1, ST_nm1);
-
-    // a(n) = n*D(n-1) - ST(n-1)  (exact signed i128)
-    i128 a_int = (i128)n * (i128)Dval_nm1 - (i128)ST_nm1;
-    err_a = residual_f128(a_int, a_asymptotic_f128(n));
-
-    if (!compute_d_combo) {
-        err_d     = NAN;
-        err_combo = NAN;
-        return;
-    }
-
-    // Second O(sqrt n) call for D(n) and ST(n) — needed for err_D and err_combo
-    u128 Dval_n, ST_n;
-    D_and_sigma_tau_u128(n, Dval_n, ST_n);
-
-    err_d = residual_f128((i128)Dval_n, D_asymptotic_f128(n));
-
-    // err_combo = (sigma_tau(n) - a(n+1)) / n
-    // a(n+1) = (n+1)*D(n) - ST(n)
-    i128 a_np1  = (i128)(n + 1) * (i128)Dval_n - (i128)ST_n;
-    i128 numer  = (i128)ST_n - a_np1;
-    err_combo   = (long double)numer / (long double)n;
-}
-
-
-/* -----------------------------------------------------------------------
-   Main table computation and display
-   ----------------------------------------------------------------------- */
-void run_asymptotic_table(u128 cutoff, u128 max_n, double ratio,
-                          const char *hdf5_path)
-{
-    printf("\n--- Asymptotic error and empirical theta ---\n");
-    printf("a(n) = n^2/2*log(n) + (g-3/4)*n^2 + n/4  +  err_osc\n");
-    printf("err_osc = O(n^{theta+1/2}).  ratio=%.4f  cutoff=%s\n",
-           ratio, u128_to_str(cutoff).c_str());
-    printf("Below cutoff: fused verified vs hoying.  Above: fused only (trusted).\n");
-    printf("Accumulators: using fast native __int128 hot path for main computations.\n");
-
-    std::vector<u128> ns = make_sample_ns(max_n, ratio);
-    int npts = (int)ns.size();
-
-    printf("Computing %d sample points on %d threads...\n\n", npts, omp_get_max_threads());
-    setvbuf(stdout, nullptr, _IOLBF, 0);
-
-    printf("%20s  %12s  %12s  %12s  %12s  %12s  %s\n",
-           "n", "err_a/n^.75", "env_max/n^.75", "err_D/n^.25", "combo/n^.25",
-           "θ_slope", "method");
-    fflush(stdout);
-
-    std::vector<RowResult> rows(npts);
-    g_progress.init(ns);
-
-    // Parallel compute — use u128 fast routines for main work.
-    #pragma omp parallel for schedule(dynamic,1) num_threads(omp_get_max_threads())
-    for (int i = 0; i < npts; ++i) {
-        u128 n = ns[i];
-        RowResult &row = rows[i];
-        row.n        = n;
-        row.skip     = false;
-        row.mismatch = false;
-        row.verified = (n <= cutoff);
-
-        // Fused single-pass: one D_and_sigma_tau_u128(n-1) for a(n) err_a,
-        // one optional D_and_sigma_tau_u128(n) for err_d/err_combo below cutoff.
-        // Above cutoff: only one O(sqrt n) call total.
-        compute_all_errors_u128(n, row.verified,
-                                row.err_a, row.err_d, row.err_combo);
-
-        // Verification: compare a_hoying_u128(n-1) vs fused a(n).
-        // Only runs below cutoff (small n), so the extra O(sqrt n) is cheap.
-        if (row.verified) {
-            i128 hoy_int = a_hoying_u128(n - 1);
-            u128 Dv, STv;
-            D_and_sigma_tau_u128(n - 1, Dv, STv);
-            i128 fus_int = (i128)n * (i128)Dv - (i128)STv;
-            if (hoy_int != fus_int) {
-                row.mismatch = true;
-                row.mismatch_msg = std::string("MISMATCH (u128)");
-            }
-        }
-        row.logn = logl((long double)n);
-
-        g_progress.tick(sqrt((double)n));
-    }
-
-    g_progress.finish();
-
-    // --- Serial output + HDF5 same as before ---
-    long double prev_err  = 0.0L, prev_logn = 0.0L;
-    long double env_max   = 0.0L;
-    long double sum1  = 0.0L, sumx = 0.0L, sumy  = 0.0L;
-    long double sumxx = 0.0L, sumxy = 0.0L;
-    int reg_cnt = 0;
-
-    std::vector<std::string> col_n, col_method;
-    std::vector<double> col_err_a, col_err_d, col_err_combo;
-    std::vector<double> col_logn, col_theta, col_env_max;
-
-    for (int i = 0; i < npts; i++) {
-        const RowResult &row = rows[i];
-        u128 n = row.n;
-
-        if (row.skip) {
-            printf("%20s  [skipped]\n", u128_to_str(n).c_str());
-            continue;
-        }
-        if (row.mismatch) {
-            printf("%20s  %s\n", u128_to_str(n).c_str(), row.mismatch_msg.c_str());
-            prev_err = 0.0L; prev_logn = 0.0L;
-            continue;
-        }
-
-        long double x    = (long double)n;
-        long double n75  = powl(x, 0.75L);
-        long double n25  = powl(x, 0.25L);
-        long double logn = row.logn;
-
-        long double err_a     = row.err_a;
-        long double err_d     = row.err_d;
-        long double err_combo = row.err_combo;
-        long double abs_err   = fabsl(err_a);
-
-        if (abs_err > env_max) env_max = abs_err;
-
-        long double theta_sl = NAN;
-        if (prev_err != 0.0L && err_a != 0.0L && prev_logn > 0.0L)
-            theta_sl = (logl(abs_err) - logl(fabsl(prev_err)))
-                       / (logn - prev_logn) - 0.5L;
-
-        if (abs_err > 0.0L && fabsl(err_a / n75) < 10.0L) {
-            long double loge = logl(abs_err);
-            sum1  += 1.0L; sumx  += logn;  sumy  += loge;
-            sumxx += logn * logn;           sumxy += logn * loge;
-            reg_cnt++;
-        }
-
-        const char *method = row.verified ? "verified" : "fused";
-
-        char col_d_buf[32], col_c_buf[32];
-        if (isnan(err_d))     snprintf(col_d_buf, sizeof(col_d_buf), "%12s", "-");
-        else                  snprintf(col_d_buf, sizeof(col_d_buf), "%12.5Lf", err_d / n25);
-        if (isnan(err_combo)) snprintf(col_c_buf, sizeof(col_c_buf), "%12s", "-");
-        else                  snprintf(col_c_buf, sizeof(col_c_buf), "%12.5Lf", err_combo / n25);
-
-        printf("%20s  %12.5Lf  %12.5Lf  %s  %s",
-               u128_to_str(n).c_str(), err_a / n75, env_max / n75,
-               col_d_buf, col_c_buf);
-        if (!isnan(theta_sl))
-            printf("  %+12.4Lf", theta_sl);
-        else
-            printf("  %12s", "     -");
-        printf("  %s\n", method);
-
-        // Accumulate HDF5 columns (NaN propagates)
-        col_n.push_back(u128_to_str(n));
-        col_err_a.push_back((double)err_a);
-        col_err_d.push_back((double)err_d);
-        col_err_combo.push_back((double)err_combo);
-        col_logn.push_back((double)logn);
-        col_theta.push_back(isnan(theta_sl) ? (double)NAN : (double)theta_sl);
-        col_env_max.push_back((double)env_max);
-        col_method.push_back(method);
-
-        prev_err  = err_a;
-        prev_logn = logn;
-    }
-
-    // regression & HDF5 write same as before
-    printf("\n  Columns normalized so bounded value => theta <= 1/4 for a (n^3/4)\n");
-    printf("  and theta <= 1/4 for D, combo (n^1/4, since err_D = O(n^{theta-1/2})*n)\n");
-    printf("  theta=131/416~0.315 (Huxley bound)\n");
-
-    if (reg_cnt >= 3) {
-        long double denom = sum1 * sumxx - sumx * sumx;
-        if (fabsl(denom) > 0.0L) {
-            long double alpha     = (sum1 * sumxy - sumx * sumy) / denom;
-            long double theta_ols = alpha - 0.5L;
-            printf("\n  OLS regression log|err_a| ~ alpha*log(n) + C over %d pts:\n", reg_cnt);
-            printf("    alpha = %.6Lf  =>  theta_OLS = alpha - 0.5 = %.6Lf\n", alpha, theta_ols);
-            printf("    (compare: conjecture theta=0.25, Huxley theta<=0.315)\n");
-        }
-    }
-
-    write_hdf5(hdf5_path,
-               col_n, col_err_a, col_err_d, col_err_combo,
-               col_logn, col_theta, col_env_max, col_method);
 }
