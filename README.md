@@ -18,7 +18,7 @@ a(5) = 17
 
 OEIS sequence: `0, 1, 4, 9, 17, 27, 41, 57, 77, 100, 127, ...`
 
-The sequence grows roughly as `n² log n`. The interesting question is how fast the remainder after subtracting the smooth asymptotic — `err_osc(n)` — grows. This is directly analogous to the Dirichlet divisor problem, and the conjecture is that it grows no faster than `n^(3/4)`.
+The sequence grows roughly as `n² log n`. The remainder after subtracting the smooth asymptotic, `err_osc(n)`, turns out to be *exactly* the integral of the Dirichlet divisor error, `err_osc(n) = ∫₀ⁿ Δ(t) dt` (see below). It therefore grows like `n^(3/4)` unconditionally (Voronoi), and by itself says nothing about the Dirichlet divisor conjecture, which concerns `Δ(x)` pointwise. `divisor_delta.cpp` measures `Δ` directly.
 
 ---
 
@@ -47,16 +47,36 @@ a(n) = n²/2 · log(n) + (γ − 3/4) · n² + n/4 + err_osc(n)
 
 where γ ≈ 0.5772 is the Euler–Mascheroni constant. The `n/4` coefficient was confirmed empirically by window-averaging to suppress the oscillatory noise.
 
-### The conjecture
+### Exact structure of `err_osc` (corrected November 2026)
+
+Unrolling the identity gives
 
 ```
-err_osc(n) = O(n^(θ + 1/2))
+a(n) = Σ_{k<n} (n − k)·τ(k) = D(n−1) + Σ_{m≤n−2} D(m)
 ```
 
-- **Conjecture:** θ = 1/4, i.e. `err_osc = O(n^(3/4))`
-- **Proven (Huxley 2003):** θ ≤ 131/416 ≈ 0.3149
+an order-1 Riesz mean of the divisor function. Write `D(x) = x(log x + 2γ − 1) + 1/4 + Δ(x)` (the `1/4` makes `Δ` mean-zero). Then, exactly,
 
-The OLS regression over sample points up to N = 10¹⁸ gives **θ_OLS ≈ 0.2514**, converging toward 0.25 from above and visibly plateauing.
+```
+err_osc(n) = ∫₀ⁿ Δ(t) dt
+```
+
+Voronoi's expansion integrates term by term to
+
+```
+∫₀ˣ Δ ≈ x^(3/4) / (2√2 π²) · Σ_k d(k) k^(−5/4) · sin(4π√(kx) − π/4)
+```
+
+whose coefficients are absolutely summable, so `err_osc(n) = O(n^(3/4))` **unconditionally**, and it is not `o(n^(3/4))`. `voronoi_check.py` confirms the agreement numerically.
+
+Consequences:
+
+- The empirical exponent `α ≈ 0.75` (`θ_OLS ≈ 0.25`) is the exponent of an order-1 Riesz mean. It is a theorem; it neither supports nor refutes the divisor conjecture.
+- Pointwise `Δ` enters `err_osc` only at relative size `≲ n^(−5/12)` (`n^(−1/2)` if the conjecture holds, i.e. ~10⁻⁹ at n = 10¹⁸). The 10¹⁸ run cannot distinguish `α = 1/4` from `α = 1/3`.
+
+### The conjecture this does *not* test
+
+**Dirichlet divisor conjecture:** `Δ(x) = O(x^(1/4+ε))`. Known: `Δ = Ω(x^(1/4))` (Hardy), the Cramér mean-square asymptotic `∫₁^X Δ² ~ c·X^(3/2)` with `c = ζ(3/2)⁴ / (6π² ζ(3)) ≈ 0.6543`, and `Δ = O(x^(131/416+ε))` (Huxley). The *generalized* conjecture `α_k = (k−1)/(2k)` for all `k ≥ 2` implies the Lindelöf hypothesis (Titchmarsh, ch. XII); I found no implication Lindelöf ⟹ `α₂ = 1/4`.
 
 ---
 
@@ -83,9 +103,7 @@ with:
 - `F_1(s) = −s · ζ(s+1) · Q_1(s)` — analytic for Re(s) > 3/4
 - `R(s)` — absolutely convergent for Re(s) > 0 (k ≥ 2 terms, under Huxley θ < 1/2)
 
-Via Perron's formula this yields **θ ≤ μ(3/4)**, where μ(σ) is the Lindelöf μ-function for ζ. The conjecture θ = 1/4 is equivalent to ζ(3/4 + it) remaining sub-polynomially bounded — a consequence of the Lindelöf Hypothesis.
-
-The open gap is the F₁ cancellation problem: showing that structured cancellation between the k = 0 and k = 1 perturbation layers cannot shift the conditional abscissa of F(s) strictly left of that of F₀(s). Hardy's Ω-result e(n) = Ω(n^{1/4}) provides the hard lower bound σ₀ ≥ 3/4.
+> **Status note (November 2026).** The paragraphs that stood here (the claim `θ ≤ μ(3/4)`, the identification of the conjecture with sub-polynomial growth of `ζ(3/4+it)`, and the "F₁ cancellation gap") are **withdrawn**. `F(s) = Σ e(n) n^(−s)` is the Dirichlet series of the Riesz-mean error `err_osc = ∫Δ`, which is `Θ(n^(3/4))` unconditionally, so its abscissa is not the divisor-problem exponent; and abscissa/Perron arguments control means, not the pointwise bound on `Δ`. The algebraic decomposition `F = F₀ + F₁ + R` is kept in `divisor_derivation.pdf` as structure only. See "Exact structure of `err_osc`" above.
 
 ### From b1_sqrt to the Gauss Circle Problem (`gauss_circle_derivation.pdf`)
 
@@ -116,31 +134,19 @@ The two problems are exact siblings:
 | Conjecture | θ = 1/4 (σ₀ = 3/4) | θ = 1/4 (σ₀ = 3/4) |
 | Huxley bound | θ ≤ 131/416 | θ ≤ 131/416 |
 
-Both reduce to the same question about sub-polynomial vertical growth of the relevant L-function near Re(s) = 3/4. The identical Huxley bound is not a coincidence.
+Both problems are order-1 Riesz means of an arithmetic function (`τ`, resp. `r₂`), so both "Error" rows above are Θ(N^(3/4)) **unconditionally** (Voronoi / Hardy expansions). The identical Huxley bound applies to the *pointwise* errors `Δ` and `Δ_L`, which is where the actual conjectures live. In `delta.cpp`, `--delta` mode measures `Δ_L` directly; `divisor_delta.cpp` is the analogue for the divisor problem.
 
-The hierarchy of implications in both cases:
-
-```
-Riemann Hypothesis  ⟹  Lindelöf (μ(1/2) = 0)  ⟹  μ(3/4) = 0  ⟹  θ = 1/4
-```
+The implication chain previously shown here (`RH ⟹ Lindelöf ⟹ μ(3/4) = 0 ⟹ θ = 1/4`) is **withdrawn**: its last arrow is not known. What is known is the other direction for the *generalized* conjecture (all `k`) ⟹ Lindelöf.
 
 ---
 
-## Significance
+## Significance (revised November 2026)
 
-Via the identity `a(n) = n·D(n−1) − σ_τ(n−1)`, the oscillatory error in `a(n)` is directly coupled to the error in the Dirichlet divisor sum. Empirical bounds on `err_osc` translate into empirical bounds on the divisor problem.
-
-Four observations from the numerical results:
-
-1. **Consistent with the conjecture.** The OLS exponent sits at θ_OLS ≈ 0.2514 at N = 10¹⁸ and has been flat for five decades, well below the proven Huxley bound of 131/416 ≈ 0.3149. The data does not contradict θ = 1/4.
-
-2. **Tighter empirical upper bound.** The running envelope max — `env_max/n^.75` in the output — remaining bounded across 34,555 sample points to N = 10¹⁸ is direct numerical evidence that `err_osc(n) = O(n^(3/4))` holds in practice, approached from a novel object (arithmetic subsequence counts) rather than the divisor sum itself.
-
-3. **The estimate is robust to data trimming.** Computing OLS([10^k_min .. 10^18]) for every possible left cutoff k_min ∈ {4, …, 18} yields values in the band **0.251092 – 0.251741** — a total spread of 6.5 × 10⁻⁴. The estimate never drops below 0.25 under any trimming choice.
-
-4. **The sliding window estimate is smoother and unbiased.** A ±0.75-decade window centred at each 10^k eliminates the jumpiness of the per-decade estimate. The sliding estimate at N = 10¹⁸ gives θ ≈ 0.2489; the mean over the top three decades is ≈ 0.2612.
-
-No claim is made that the true limit is exactly 0.25 — convergence is slow and the gap between 0.2514 and 0.25 may reflect a logarithmic correction of the form `err_osc(n) = Ω(n^(1/4) log(n)^c)`. The contribution is the connection, the bound, and the robustness result — not a proof.
+1. **The formula and evaluator are sound.** Hoying's formula is an O(√n) evaluator of `a(n) = Σ_{k<n}(n−k)τ(k)`, cross-checked against brute force and the fused hyperbola identity.
+2. **The numerics confirm Voronoi, not the divisor conjecture.** `err_osc = ∫Δ` is `Θ(n^(3/4))` by theorem. The observed `θ_OLS ≈ 0.2514`, the bounded `env_max/n^.75`, and the left-cutoff and sliding-window results below all measure this known exponent. The small persistent offset above 0.25 is most likely OLS sampling noise on a bounded oscillation rather than a logarithmic correction (untested).
+3. **Pointwise `Δ` is nearly invisible in `err_osc`** (see above), so `err_osc` bounds on `Δ` are vacuous.
+4. **What does test the conjecture:** `divisor_delta.cpp` evaluates `Δ(x)` at half-integers `x = n + 1/2` out to 10¹⁸ and reports per-decade mean, mean-square (compare Cramér: `E[(Δ/x^(1/4))²] → 0.98143` for log-uniform sampling) and extremes. A sampled maximum is a weak sup-probe; the mean-square and distribution are the sharper statistics.
+5. **Riemann hypothesis status.** On 20 November 2026 Levent Alpöge announced, with Claude, a Lean-formalized proof of RH and of GRH for Dirichlet L-functions; community checking of the Lean development is ongoing and a human-readable proof is still in progress. Even granting it, `α = 1/4` is not known to follow from RH/Lindelöf, so nothing here is "solved" by it, and nothing in this repo depended on GRH being open. The Gauss-circle sibling uses `L(s, χ₋₄)`; `ζ_{Q(i)} = ζ · L(s, χ₋₄)`, so it is covered by RH + GRH for Dirichlet L-functions, with the same conclusion.
 
 ---
 
@@ -149,7 +155,9 @@ No claim is made that the true limit is exactly 0.25 — convergence is slow and
 | File | Description |
 |------|-------------|
 | `main.cpp` | Main C++ program — computes `a(n)`, asymptotic error, OLS θ table. Uses `__int128` for exact arithmetic and `__float128` for precision-safe asymptotic subtraction. |
-| `delta.cpp` | Companion program — computes `b1(N)` and the Gauss circle error `E₃(N)` via `chi_{-4}` prefix sums. Includes `--delta` mode to compute `A(N) = b1(N+1) − b1(N)` directly. |
+| `divisor_delta.cpp` | **Direct** divisor-problem probe: `Δ(x)` at `x = n+1/2` to 10¹⁸, per-decade mean / mean-square / extremes of `Δ/x^(1/4)`, optional CSV. Self-checks against a sieve and aborts on any mismatch. |
+| `voronoi_check.py` | Verifies `err_osc(n) = ∫₀ⁿΔ` against the Voronoi series (exact big-int `a(n)`, `n ≲ 10¹³`). |
+| `gauss_circle_conjecture/delta.cpp` | Companion program — computes `b1(N)` and the Gauss circle error `E₃(N)` via `chi_{-4}` prefix sums. Includes `--delta` mode to compute `A(N) = b1(N+1) − b1(N)` directly. |
 | `divisor_derivation.pdf` | Perturbative Dirichlet series derivation connecting `a(n)` to ζ(s) and the Dirichlet divisor problem. |
 | `gauss_circle_derivation.pdf` | Companion derivation connecting `b1(N)` to L(s, χ_{−4}) and the Gauss circle problem. |
 | `plot_theta.py` | Python script — reads `./delta` stdout, plots θ_OLS(N) per decade |
@@ -169,6 +177,12 @@ g++ -O3 -fopenmp -o delta main.cpp -lm -lquadmath
 
 # Without libquadmath (precision degrades above n ~ 10⁹):
 g++ -O3 -DNO_QUADMATH -fopenmp -o delta main.cpp -lm
+```
+
+**divisor_delta.cpp** (direct Δ probe):
+
+```bash
+g++ -O3 -march=native -fopenmp -std=gnu++17 divisor_delta.cpp -lquadmath -o divisor_delta
 ```
 
 **delta.cpp** (Gauss circle / b1 counter):
@@ -196,6 +210,14 @@ Requires GCC with OpenMP. Uses `__int128`, `__uint128_t`, `__float128` — GCC e
 | `ratio` | 10.0 | Multiplicative spacing between sample points |
 
 **Note on point count:** `ratio` controls density, not count. With `ratio=1.001` (0.1% steps) over a 16-decade range, you get ~36,860 sample points. To get ~1,000 points use `ratio ≈ 1.037`. The `delta.cpp` program takes an explicit `samples` count instead.
+
+### divisor_delta.cpp
+
+```
+./divisor_delta [Nmax [ratio [nmin]]] [--csv=path]     # defaults 1e18, 1.001, 1e4
+```
+
+Quick check: `./divisor_delta 100000000 1.01`. Full run: `OMP_NUM_THREADS=$(nproc) ./divisor_delta 1000000000000000000 1.001 --csv=delta_direct.csv`. Per point cost is O(√n) with hardware u64 division, so expect roughly 20–60 min on 20 cores for ~34k points to 10¹⁸. `python3 voronoi_check.py` validates the `err_osc = ∫Δ` identity.
 
 ### delta.cpp
 
@@ -258,6 +280,8 @@ The asymptotic subtraction `a(n) − [n²/2·log(n) + ...]` requires ~31 signifi
 ---
 
 ## Results
+
+> **Reading note (November 2026):** the exponents below are those of the Riesz-mean error `err_osc = ∫Δ`, which is `Θ(n^(3/4))` by theorem, so they confirm Voronoi's expansion rather than bear on the Dirichlet divisor conjecture. See "Exact structure of `err_osc`".
 
 Running to N = 10¹⁸ with ratio 1.001 gives the following cumulative OLS values:
 

@@ -331,15 +331,21 @@ i128 a_brute_force(u128 n) {
 }
 
 /* --- Asymptotic for a(n):
-   Via a(n) = n*D(n-1) - sigma_tau(n-1) and Dirichlet expansions:
-     D(x)         = x*log(x) + (2g-1)*x + Delta(x),    Delta(x) = O(x^{1/3})
-     sigma_tau(x) = x^2/2*log(x) + (g-1/4)*x^2 + x*Delta(x) + O(x^{4/3})
-   Exact coefficient n/4 empirically confirmed by window-averaging to kill Delta noise.
+   Exact structure (corrected Nov 2026):
+     a(n) = n*D(n-1) - sigma_tau(n-1) = sum_{k<n} (n-k)*tau(k)      [order-1 Riesz mean]
+          = D(n-1) + sum_{m<=n-2} D(m)                               [n*Delta terms cancel]
+   With D(t) = t*log(t) + (2g-1)*t + 1/4 + Delta(t)  (Delta mean-zero, t>0):
 
-     a(n) = n^2/2 * log(n) + (g-3/4)*n^2 + n/4 + O(n^{2/3})
+     a(n) = n^2/2 * log(n) + (g-3/4)*n^2 + n/4 + err_osc(n),
+     err_osc(n) = int_0^n Delta(t) dt   EXACTLY.
 
-   The O(n^{2/3}) remainder comes from the x*Delta(x) = O(x^{4/3}) term in sigma_tau,
-   which after cancellation in a(n) = n*D(n-1) - sigma_tau(n-1) leaves O(n^{2/3}).
+   Voronoi: int_0^x Delta ~ x^{3/4}/(2*sqrt2*pi^2) * sum_k d(k) k^{-5/4} sin(4*pi*sqrt(kx) - pi/4),
+   absolutely convergent, so err_osc(n) = Theta(n^{3/4}) UNCONDITIONALLY.
+   (voronoi_check.py verifies this numerically.)  Hence the OLS exponent reported
+   below (~0.75, i.e. "theta" ~0.25) is a theorem about a Riesz mean and says
+   NOTHING about the Dirichlet divisor conjecture Delta(x) = O(x^{1/4+eps}).
+   Pointwise Delta enters err_osc only at relative size <~ n^{-5/12}.
+   To test the actual conjecture use divisor_delta.cpp.
 
    PRECISION: n^2/2*log(n) ~ n^2 * 1.15*log10(n) requires ~2*log10(n)+1 significant digits.
    At n=10^15 that is ~31 digits. We use __float128 (113-bit mantissa, ~34 digits) with
@@ -450,19 +456,20 @@ long double exact_err_combo(u128 n) {
 }
 
 
-/* --- Empirical theta estimate ---
-   From err_a = O(n^{theta + 1/2}), we estimate theta via:
+/* --- Empirical exponent estimate ---
+   alpha := slope of log|err_a| vs log(n);  "theta" := alpha - 1/2.
      theta_point(n) = log|err_a| / log(n) - 1/2
      theta_slope    = slope of log|err_a| vs log(n) between consecutive pts - 1/2
-   Both are noisy due to sign oscillation in err_a.
+   Both are noisy due to sign oscillation in err_a.  We also regress the running
+   envelope max|err_a| and report the OLS value and the running-max column.
 
-   Better estimate: track the running envelope max|err_a| over [n0..n],
-   regress log(env) ~ (theta+1/2)*log(n) + C on all data, and report
-   the OLS theta.  Also report the running-max column directly.
-
-   Theory:
-     Divisor conjecture (theta=1/4):   err_a = O(n^{3/4})
-     Huxley proven    (theta=131/416): err_a = O(n^{339/416}) ~ O(n^{0.815}) */
+   INTERPRETATION (Nov 2026): err_a = int_0^n Delta is Theta(n^{3/4}) by Voronoi,
+   so alpha -> 3/4 and theta -> 1/4 are expected as THEOREMS, whatever the truth
+   of the divisor conjecture; deviations of the OLS value from 0.25 are sampling
+   noise.  Do not read these columns as evidence about Delta(x) = O(x^{1/4+eps})
+   (use divisor_delta.cpp).  For reference:
+     err_a = O(n^{3/4}) holds unconditionally;
+     the Huxley bound 131/416 applies to pointwise Delta, not to err_a. */
 
 /* Generate the set of sample points from n_start up to max_n,
    multiplicatively spaced by ratio (a double, e.g. 10.0 or 2.0).
@@ -503,7 +510,7 @@ struct RowResult {
 void run_asymptotic_table(u128 cutoff, u128 max_n, double ratio) {
     printf("\n--- Asymptotic error and empirical theta ---\n");
     printf("a(n) = n^2/2*log(n) + (g-3/4)*n^2 + n/4  +  err_osc\n");
-    printf("err_osc = O(n^{theta+1/2}).  ratio=%.4f  cutoff=%s\n",
+    printf("err_osc = int_0^n Delta = Theta(n^{3/4}) (Voronoi; theta:=alpha-1/2 -> 1/4 is a theorem, not a divisor-conjecture test).  ratio=%.4f  cutoff=%s\n",
            ratio, u128_to_str(cutoff).c_str());
     printf("Below cutoff: fused verified vs hoying.  Above: fused only (trusted).\n");
 
@@ -640,9 +647,9 @@ void run_asymptotic_table(u128 cutoff, u128 max_n, double ratio) {
         prev_logn = logn;
     }
 
-    printf("\n  Columns normalized so bounded value => theta <= 1/4 for a (n^3/4)\n");
-    printf("  and theta <= 1/4 for D, combo (n^1/4, since err_D = O(n^{theta-1/2})*n)\n");
-    printf("  theta=131/416~0.315 (Huxley bound)\n");
+    printf("\n  err_a/n^.75 is bounded unconditionally (Voronoi): it confirms the Riesz-mean exponent only.\n");
+    printf("  err_D/n^.25 and combo/n^.25 use D(n) at INTEGERS, biased by ~tau(n)/2; for a real test of\n");
+    printf("  Delta(x)=O(x^{1/4+eps}) use divisor_delta.cpp (half-integers, mean-square vs 0.98143).\n");
 
     if (reg_cnt >= 3) {
         long double denom = sum1 * sumxx - sumx * sumx;
@@ -651,7 +658,7 @@ void run_asymptotic_table(u128 cutoff, u128 max_n, double ratio) {
             long double theta_ols = alpha - 0.5L;
             printf("\n  OLS regression log|err_a| ~ alpha*log(n) + C over %d pts:\n", reg_cnt);
             printf("    alpha = %.6Lf  =>  theta_OLS = alpha - 0.5 = %.6Lf\n", alpha, theta_ols);
-            printf("    (compare: conjecture theta=0.25, Huxley theta<=0.315)\n");
+            printf("    (expected theta=0.25 as a theorem for err_osc = int Delta; not a test of the divisor conjecture)\n");
         }
     }
 }
@@ -695,9 +702,9 @@ int main(int argc, char **argv) {
 
     printf("\n--- N = %s ---\n", u128_to_str(N).c_str());
     printf("err_osc                = %.4Lf\n", err);
-    printf("err / n^(3/4)          = %.8Lf   [bounded iff theta <= 1/4]\n",
+    printf("err / n^(3/4)          = %.8Lf   [bounded unconditionally (Voronoi)]\n",
            err / powl(x, 0.75L));
-    printf("err / n^(0.815)        = %.8Lf   [bounded iff theta <= 131/416]\n",
+    printf("err / n^(0.815)        = %.8Lf   [trivially bounded; Huxley applies to pointwise Delta, not err]\n",
            err / powl(x, 0.815L));
     printf("theta_point            = %.6Lf\n", theta_pt);
 

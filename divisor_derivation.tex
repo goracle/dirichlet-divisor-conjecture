@@ -22,6 +22,19 @@
 
 \begin{document}
 \maketitle
+
+\begin{center}\fbox{\parbox{0.92\textwidth}{\small
+\textbf{Status note (November 2026).}
+Sections~\ref{sec:riesz} and~\ref{sec:correct} supersede the earlier
+Perron/Lindel\"of discussion.  The oscillatory error $e(n)$ studied here equals
+$\int_0^n\Delta(t)\,dt$ exactly, which is $\Theta(n^{3/4})$ unconditionally by
+Voronoi's expansion.  It therefore does \emph{not} probe the pointwise Dirichlet
+divisor conjecture $\Delta(x)=O(x^{1/4+\varepsilon})$, and the statements
+``$\theta\le\mu(3/4)$'', ``the conjecture is equivalent to $\mu(3/4)=0$'' and
+``Lindel\"of $\Rightarrow\theta=1/4$'' that appeared in earlier versions are
+withdrawn.  The algebra of the perturbative decomposition is retained as structure.
+}}\end{center}
+
 \tableofcontents
 \newpage
 
@@ -109,44 +122,34 @@ The Abel summation route avoids this pitfall entirely.
 
 \subsection{Asymptotic for \texorpdfstring{$a(n)$}{a(n)}}
 
+\begin{proposition}[Riesz-mean form]
+\label{prop:riesz}
+For $n\ge 1$,
+\[
+    a(n)\;=\;\sum_{k<n}(n-k)\,\tau(k)\;=\;D(n-1)+\sum_{m\le n-2}D(m)\;=\;\int_0^n D(t)\,dt .
+\]
+\end{proposition}
+\begin{proof}
+From Proposition~\ref{prop:identity} and Abel summation,
+$\sigma_\tau(n-1)=(n-1)D(n-1)-\sum_{m\le n-2}D(m)$, so
+$a(n)=D(n-1)+\sum_{m\le n-2}D(m)$; expanding $D$ as a sum of $\tau$ gives the first form,
+and $\int_0^n D=\sum_{k\le n}\tau(k)(n-k)$ gives the last.  (The $n\,\Delta(n)$ terms of the
+two pieces cancel exactly, which is why no $O(n^{1+\theta})$ error appears.)
+\end{proof}
+
+Put $M(t)=t\log t+(2\gamma-1)t+\tfrac14$ and $\Delta(t):=D(t)-M(t)$ for $t>0$
+(mean-zero convention; $M$ is integrable at $0$).
+
 \begin{theorem}
 \label{thm:aasym}
 \[
-    a(n) = \frac{n^2}{2}\log n + \left(\gamma - \frac{3}{4}\right)n^2
-    + \frac{n}{4} + O\!\left(n^{1/2+\theta}\right).
+    a(n)=\frac{n^2}{2}\log n+\Bigl(\gamma-\frac34\Bigr)n^2+\frac n4+e(n),
+    \qquad e(n)=\int_0^n\Delta(t)\,dt\quad\text{\emph{(exact)}}.
 \]
 \end{theorem}
-
 \begin{proof}
-From Proposition~\ref{prop:identity}, expand $D(n-1)$ using \eqref{eq:Dasym}:
-\[
-    D(n-1) = n\log n + (2\gamma-2)n - \log n - (2\gamma-1) + O(n^\theta).
-\]
-Multiply by $n$:
-\[
-    n\,D(n-1) = n^2\log n + (2\gamma-2)n^2 - n\log n - (2\gamma-1)n
-        + O(n^{1+\theta}).
-\]
-From Proposition~\ref{prop:sigmatau} with $n \to n-1$
-(the shift introduces only lower-order corrections):
-\[
-    \sigma_\tau(n-1) = \frac{n^2}{2}\log n + \left(\gamma-\frac{1}{4}\right)n^2
-        + O(n^{1+\theta}).
-\]
-Subtracting:
-\begin{align*}
-    a(n) &= n^2\log n + (2\gamma-2)n^2 - n\log n
-         - \frac{n^2}{2}\log n - \left(\gamma-\frac{1}{4}\right)n^2
-         + O(n^{1+\theta})\\
-         &= \frac{n^2}{2}\log n
-            + \underbrace{(2\gamma - 2 - \gamma + \tfrac{1}{4})}_{=\,\gamma - 7/4}n^2
-            - n\log n + O(n^{1+\theta}).
-\end{align*}
-The $-n\log n$ term and remaining linear terms ultimately contribute the
-$+n/4$ correction; careful tracking of the $n \to n-1$ substitution in
-$\sigma_\tau$ and the boundary terms in $D$ yields the stated $+n/4$.
-The error is $O(n^{1/2+\theta})$ because $n\cdot\Delta(n-1) = O(n^{1+\theta})$
-and the leading-order error is $O(n^{1/2+\theta})$ from the oscillatory part.
+$\int_0^n M=\frac{n^2}{2}\log n-\frac{n^2}{4}+(\gamma-\frac12)n^2+\frac n4$.
+Combine with Proposition~\ref{prop:riesz}.
 \end{proof}
 
 Define the \emph{oscillatory error}:
@@ -155,7 +158,16 @@ Define the \emph{oscillatory error}:
         + \left(\gamma-\frac{3}{4}\right)n^2 + \frac{n}{4}\right].
     \label{eq:err}
 \end{equation}
-The Dirichlet divisor conjecture is equivalent to $e(n) = O(n^{3/4+\varepsilon})$.
+By Voronoi's formula for the integrated error (see Titchmarsh, Ch.~XII; Ivi\'c, Ch.~13),
+\[
+    e(n)=\frac{n^{3/4}}{2\sqrt2\,\pi^2}\sum_{k\ge1}\frac{d(k)}{k^{5/4}}
+         \sin\!\bigl(4\pi\sqrt{kn}-\tfrac{\pi}{4}\bigr)+(\text{lower order}),
+\]
+and $\sum d(k)k^{-5/4}<\infty$, so $e(n)=O(n^{3/4})$ \emph{unconditionally}, and by the usual
+$\Omega$-argument $e(n)\ne o(n^{3/4})$.  (Checked numerically to $\sim10^{-4}$ relative
+at $n\sim10^{6}$--$10^{8}$ by \texttt{voronoi\_check.py}.)  Hence $e(n)$ is \emph{not}
+equivalent to, and cannot detect, the divisor conjecture: the pointwise error enters $e(n)$
+only at relative size $\lesssim n^{-5/12}$.
 
 %-----------------------------------------------------------------------
 \section{The Perturbation Series}
@@ -178,15 +190,15 @@ Hence
 
 \subsection{The Dirichlet Series and Swapping Sums}
 
-Following the OLS regression definition of $\theta$, define $\theta$ as
-the abscissa of conditional convergence of
+Let $\sigma_0$ denote the abscissa of conditional convergence of
 \begin{equation}
     F(s) = \sum_{n=1}^\infty \frac{e(n)}{n^s},
     \qquad s = \sigma + it \in \mathbb{C}.
     \label{eq:Fs}
 \end{equation}
-The OLS slope of $\log|e(n)|$ vs.\ $\log n$ converges (in the large-sample
-limit) to the abscissa $\sigma_0 = \tfrac{1}{2}+\theta$.
+This is a property of the Riesz-mean error $e=\int\Delta$ (for which the OLS exponent is
+$\tfrac12+\tfrac14=\tfrac34$ by Theorem~\ref{thm:aasym}); it is \emph{not} the
+divisor-problem exponent, and in particular the OLS slope of $\log|e(n)|$ does not estimate it.
 
 Substitute \eqref{eq:dT} into \eqref{eq:Fs}.  The constraint
 $i \le \lfloor\sqrt{n}\rfloor$ is equivalent to $n \ge i^2$, so swapping
@@ -303,6 +315,12 @@ $k\ge 2$ & $O(n^{\theta-1/2})$ & $< 0$ & converges everywhere\\
 \end{tabular}
 \end{center}
 
+\begin{remark}
+Throughout this section $\theta$ denotes the exponent in $e(n)=O(n^{1/2+\theta})$; by
+Theorem~\ref{thm:aasym} and Voronoi it equals $1/4$ unconditionally, so the ``Huxley''
+column is obsolete (it is the bound for pointwise $\Delta$, not for $e$).
+\end{remark}
+
 \begin{proposition}
 Under Huxley's bound $\theta < 1/2$ (proven), the $k \ge 2$ tail
 $R(s) = \sum_{k\ge 2}(\cdots)$ is absolutely convergent for all
@@ -367,180 +385,64 @@ in the interval $[3/4,\, \sigma_c(F_0))$, not below $3/4$.
 The open question is whether $\sigma_0 = \sigma_c(F_0)$ exactly (i.e.\
 no cancellation occurs) or $\sigma_0$ sits strictly inside that interval.
 
+\emph{(Status, November 2026: this gap concerns the Riesz-mean error $e=\int\Delta$, whose
+size is $\Theta(n^{3/4})$ by Theorem~\ref{thm:aasym}; it is not the divisor-problem gap.  See
+Sections~\ref{sec:riesz}--\ref{sec:correct}.)}
+
 Ruling out the latter — showing that $F_1$ cannot reduce the abscissa via
 cancellation — is precisely the remaining gap, and is the point at which
 the classical proofs of the Dirichlet divisor bound become hard.
 \end{remark}
 
 %-----------------------------------------------------------------------
-\section{The Dirichlet Divisor Problem as a Contour Integral}
+\section{What the Perron Argument Actually Gives}\label{sec:riesz}
 %-----------------------------------------------------------------------
 
-\subsection{Perron's Formula}
+\paragraph{Withdrawn.}  An earlier version of this note concluded
+$\theta\le\mu(3/4)$ and that the divisor conjecture is equivalent to $\mu(3/4)=0$, with
+the chain $\mathrm{RH}\Rightarrow\mathrm{Lindel\ddot of}\Rightarrow\mu(3/4)=0\Rightarrow\theta=1/4$.
+These claims are withdrawn: (i)~they concern the Dirichlet series of $e=\int\Delta$, whose
+size is $n^{3/4}$ by Theorem~\ref{thm:aasym} regardless of any hypothesis; (ii)~abscissae
+of (conditional) convergence, and Perron's formula applied to partial sums, control
+\emph{means}, not the pointwise bound for $\Delta$; (iii)~the last arrow in the chain is
+not known.
 
-By Perron's formula, the partial sums of $e(n)$ satisfy:
-\begin{equation}
-    \sum_{n \le x} e(n) = \frac{1}{2\pi i}
-    \int_{\sigma-i\infty}^{\sigma+i\infty}
-    F(s)\,\frac{x^s}{s}\,ds, \qquad \sigma > \sigma_0.
-    \label{eq:perron}
-\end{equation}
-Since $F(s) \approx \zeta(s)Q_0(s)$ and $Q_0$ is analytic and bounded on the
-integration line, the integral reduces to:
-\begin{equation}
-    \sum_{n \le x} e(n) \sim x^\sigma
-    \int_{-\infty}^{\infty}
-    \zeta(\sigma+it)\,Q_0(\sigma+it)\,\frac{e^{it\log x}}{\sigma+it}\,dt.
-    \label{eq:fourier}
-\end{equation}
-This is a Fourier transform (in the variable $\log x$) of
-$\zeta(\sigma+it)Q_0(\sigma+it)/(\sigma+it)$.
-
-\subsection{The Convergence Question}
-
-For this Fourier integral to converge and yield a bound
-$\sum_{n\le x}e(n) = O(x^\sigma)$, one needs $|\zeta(\sigma+it)|$ to decay
-(or at worst grow sub-polynomially) as $|t|\to\infty$.
-
-\begin{definition}[Lindelöf $\mu$-function]
-\label{def:lindelof}
-$\mu(\sigma) := \inf\{\alpha \ge 0 : \zeta(\sigma+it) = O(|t|^\alpha)\}$.
-\end{definition}
-
-The Dirichlet divisor conjecture is equivalent to $\mu(3/4) = 0$.
-
-\subsection{The Final Statement}
-
-\begin{theorem}[Divisor problem and zeta growth]
-\label{thm:final}
-The derivation establishes the upper bound
-\begin{equation}
-    \theta \;\le\; \mu\!\left(\tfrac{3}{4}\right),
-    \label{eq:thetamu}
-\end{equation}
-where $\mu(\sigma)$ is the Lindel\"of $\mu$-function
-(Definition~\ref{def:lindelof}).  Explicitly: the Perron integral
-\eqref{eq:perron}, dominated by $F_0(s)$, converges for
-$\mathrm{Re}(s) > 1/2 + \mu(3/4)$ and yields
-$\sum_{n\le x}e(n) = O(x^{1/2+\mu(3/4)+\varepsilon})$ for any $\varepsilon>0$.
-
-The classical equality $\theta = \mu(3/4)$ is known in the literature, but
-the reverse inequality $\theta \ge \mu(3/4)$ requires a Tauberian argument
-controlling cancellation between the $k=0$ and $k=1$ layers — precisely
-the step identified as open in Remark~\ref{rem:gap}.  This derivation does
-not carry out that step.  Accordingly, the correct statement derived here is:
-\[
-    \boxed{\theta \;\le\; \mu\!\left(\tfrac{3}{4}\right),}
-\]
-with equality conditional on closing the cancellation gap.
-
-The $L^1$ condition $\int |{\zeta(\sigma+it)}|/(1+|t|)\,dt < \infty$ gives
-an upper bound on $\theta$ for the same reason; it is not established as an
-equivalence here.
-\end{theorem}
-
-The conjecture $\theta = 1/4$ corresponds to this threshold being at
-$\sigma = 3/4$, exactly halfway between the line of absolute convergence
-$\sigma = 1$ and the critical line $\sigma = 1/2$.
-
-\subsection{The Hierarchy of Implications}
-
-\[
-    \text{Riemann Hypothesis}
-    \implies \text{Lindelöf}\ (\mu(1/2)=0)
-    \implies \mu(3/4) = 0
-    \implies \theta = 1/4.
-\]
-Each arrow is a strict weakening.  Current best: Huxley gives
-$\theta \le 131/416 \approx 0.3149$ by bounding $\mu(3/4) \le 131/416 - 1/4$.
+\paragraph{What is known.}
+\begin{itemize}
+  \item $\Delta(x)=\Omega(x^{1/4})$ (Hardy) and $\int_1^X\Delta^2\sim c\,X^{3/2}$,
+        $c=\zeta(3/2)^4/(6\pi^2\zeta(3))\approx0.6543$ (Cram\'er); so mean-square size
+        $x^{1/4}$ is a theorem.
+  \item $\Delta(x)=O(x^{131/416+\varepsilon})$ (Huxley); the conjecture is $O(x^{1/4+\varepsilon})$.
+  \item The \emph{generalized} conjecture $\alpha_k=(k-1)/(2k)$ for all $k\ge2$ implies the
+        Lindel\"of hypothesis (Titchmarsh, Ch.~XII).  I found no implication
+        Lindel\"of $\Rightarrow\alpha_2=1/4$.
+\end{itemize}
 
 %-----------------------------------------------------------------------
-\section{What Remains: The Open Gap}
+\section{Status of the Riemann Hypothesis (November 2026) and What to Measure}\label{sec:correct}
 %-----------------------------------------------------------------------
 
-The derivation above is rigorous up to one point: the identification
-$\sigma_0 = \mathrm{abscissa\ of\ }F_0(s)$.  This section states precisely
-what is missing.
+On 20 November 2026 L.~Alp\"oge announced, with Claude, a Lean-formalized proof of the
+Riemann hypothesis and of GRH for Dirichlet $L$-functions; community verification of the
+Lean development is ongoing and a human-readable proof is in progress.  Granting it:
+RH $\Rightarrow$ Lindel\"of, but this does not give $\alpha=1/4$, so the divisor
+conjecture remains open as far as I know, and nothing in this note depended on GRH being open.
 
-\subsection{The $F_1$ cancellation problem}
+To test the pointwise conjecture, measure $\Delta$ itself, at half-integers $x=n+\tfrac12$
+(at integers $D$ jumps by $\tau(n)$, biasing $D(n)$ by $\approx\tfrac12\tau(n)$).
+\texttt{divisor\_delta.cpp} does this to $10^{18}$ and reports, per decade,
+the mean ($\to0$), the mean-square of $v=\Delta/x^{1/4}$ ($\to\tfrac32c\approx0.98143$ for
+log-uniform sampling) and the extremes.  A sampled maximum is a weak sup-probe, since
+$\Delta$ peaks are rare; the mean-square and the distribution are the sharper statistics.
 
-We have shown:
-\[
-    F(s) = \underbrace{\zeta(s)Q_0(s)}_{F_0}
-         + \underbrace{(-s)\,\zeta(s+1)Q_1(s)}_{F_1} + R(s),
-\]
-where $F_1$ is analytic for $\mathrm{Re}(s)>3/4$ and $R$ is absolutely
-convergent for $\mathrm{Re}(s)>0$.  The claim that $\sigma_0$ equals the
-abscissa of $F_0$ requires showing:
-
-\begin{quote}
-\emph{No cancellation between the $k=0$ and $k=1$ (or higher) layers of the
-perturbation expansion can reduce the abscissa of conditional convergence of
-$F(s)$ below the abscissa of $F_0(s)$ alone.}
-\end{quote}
-
-This is the open gap.  Concretely, one would need either:
-\begin{enumerate}
-    \item A pointwise bound: $|e_1(n)| \ll |e_0(n)|$ uniformly, which would
-          make the $k=1$ contribution strictly sub-dominant; or
-    \item A Dirichlet series argument: the analytic continuation of $F_1(s)$
-          into the strip $3/4 \le \mathrm{Re}(s) < \sigma_c(F_0)$ does not
-          cancel the singularities of $F_0$ in a way that moves the
-          conditional abscissa strictly left of $\sigma_c(F_0)$.
-\end{enumerate}
-
-Note: the strip in (2) is $3/4 \le \mathrm{Re}(s)$, not $1/4 < \mathrm{Re}(s)$.
-The hard lower bound $\sigma_0 \ge 3/4$ (Hardy's $\Omega$-theorem,
-$e(n) = \Omega(n^{1/4})$) is \emph{already proven} and is not in question.
-The gap is only about whether $\sigma_0$ equals $\sigma_c(F_0)$ or lies
-in the interval $[3/4,\,\sigma_c(F_0))$.
-
-\subsection{The wall}
-
-This is the same wall encountered in every classical approach to the divisor
-problem.  The perturbative expansion here makes the structure explicit: the
-difficulty is not analytic continuation of a single zeta function, but
-controlling cancellation between multiple shifted-zeta layers.
-
-Huxley's 2003 bound $\theta \le 131/416$ arises from bounding $\mu(3/4)$
-via exponential sum methods (van der Corput + Weyl differencing), not from
-resolving the cancellation question.  The bound $\theta = 1/4$ (the
-conjecture) corresponds to $\mu(3/4) = 0$, i.e.\ sub-polynomial growth of
-$\zeta(3/4+it)$ — a consequence of the Lindelöf Hypothesis, which is itself
-implied by (but strictly weaker than) the Riemann Hypothesis.
-
-%-----------------------------------------------------------------------
 \section{Why Complex Numbers?}
-%-----------------------------------------------------------------------
 
-The original problem --- bounding $|e(n)| = O(n^{3/4+\varepsilon})$ --- is
-purely about real integers.  Complex numbers enter because:
-
-\begin{enumerate}
-    \item Writing $n^{-s} = n^{-\sigma}e^{-it\log n}$, the variable $t$ is
-          a \emph{Fourier frequency} in $\log n$.  Complex $s$ decomposes
-          the sequence $e(n)$ into oscillatory modes.
-    \item Bounding $\sum_{n\le x}e(n)$ requires understanding cancellation.
-          Cancellation is oscillation.  Oscillation is naturally studied in
-          the complex plane.
-    \item Perron's formula inverts the Dirichlet series via a contour
-          integral.  Contour integrals require complex variables.
-\end{enumerate}
-
-The complex plane is not part of the \emph{problem}; it is part of the
-\emph{microscope}.  The imaginary direction is Fourier frequency space.
-The abscissa $\sigma_0$ at which the contour can no longer be shifted left
-is a real number: precisely $\tfrac{1}{2}+\theta$.
-
-The question ``does $\theta = 1/4$?'' is thus equivalent to:
-\begin{quote}
-\emph{Does $\zeta(3/4 + it)$ remain sub-polynomially bounded in $|t|$?}
-\end{quote}
-This has been known since Hardy--Landau ($\sim$1915) and appears in
-Titchmarsh's \emph{Theory of the Riemann Zeta-Function} and Ivić's
-\emph{The Riemann Zeta-Function}.  The derivation here recovers it from
-scratch via the explicit \texttt{a\_hoying} formula and a perturbative
-expansion.
+Complex $s$ enters as a microscope: writing $n^{-s}=n^{-\sigma}e^{-it\log n}$, the variable
+$t$ is a Fourier frequency in $\log n$, cancellation is oscillation, and Perron's formula
+inverts the Dirichlet series by a contour integral.  This is the right tool for the
+\emph{mean-value} statements above (Cram\'er, Voronoi), and for relating moments of
+$\zeta(\tfrac12+it)$ to $\Delta$ (Atkinson, Jutila, Ivi\'c).  It does not by itself decide
+the pointwise exponent.
 
 \bigskip
 \hrule

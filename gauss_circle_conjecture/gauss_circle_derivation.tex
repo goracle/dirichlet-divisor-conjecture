@@ -24,6 +24,21 @@
 
 \begin{document}
 \maketitle
+
+\begin{center}\fbox{\parbox{0.92\textwidth}{\small
+\textbf{Status note (November 2026).}
+$b_1(N)=\sum_{k<N}(N-k)r_2(k)$ is an order-1 Riesz mean of $r_2$, so $E_3(N)$ is
+$\Theta(N^{3/4})$ unconditionally; Section~3 derives exactly this from the (absolutely
+convergent at this order) Hardy--Vorono\"\i{} expansion.  Consequently $E_3$ does \emph{not}
+detect the pointwise Gauss circle conjecture $\Delta_L(x)=O(x^{1/4+\varepsilon})$, and the
+claims in Sections~5--8 that $\theta_{\mathrm{Gauss}}\le\mu_{\chi_{-4}}(3/4)$, that the
+conjecture is equivalent to $\mu_{\chi_{-4}}(3/4)=0$, and the Lindel\"of-hierarchy are
+withdrawn (see the sibling note on the divisor problem).  Pointwise $\Delta_L$ is measured
+directly by \texttt{delta.cpp --delta}.  On the Riemann-hypothesis front: an AI-assisted
+Lean proof of RH and GRH for Dirichlet $L$-functions was announced on 20~November~2026
+(verification and a human-readable proof in progress); this does not give exponent $1/4$.
+}}\end{center}
+
 \tableofcontents
 \newpage
 
@@ -166,7 +181,8 @@ Define the oscillatory error:
     E_3(N) := b_1(N) - \frac{\pi}{2}N^2 + N.
     \label{eq:E3def}
 \end{equation}
-The Gauss circle conjecture is equivalent to $E_3(N) = O(N^{3/4+\varepsilon})$.
+By Section~3 (Hardy--Vorono\"\i{}), $E_3(N)=\Theta(N^{3/4})$ \emph{unconditionally}; it is
+\emph{not} equivalent to the Gauss circle conjecture, which concerns the pointwise error $\Delta_L$.
 
 %-----------------------------------------------------------------------
 \section{The Dominant Oscillatory Mode and Stationary Phase}
@@ -421,64 +437,16 @@ $\sigma_0$ lies strictly in that interval with $\theta_{\mathrm{Gauss}} < \mu_{\
 \end{remark}
 
 %-----------------------------------------------------------------------
-\section{Reduction to a Contour Integral}
+\section{Reduction to a Contour Integral (withdrawn)}
 %-----------------------------------------------------------------------
 
-\subsection{Perron's Formula}
-
-Exactly as in the divisor problem, Perron's formula gives:
-\begin{equation}
-    \sum_{N\le x} E_3(N) = \frac{1}{2\pi i}
-    \int_{\sigma-i\infty}^{\sigma+i\infty}
-    F_{\mathrm{Gauss}}(s)\,\frac{x^s}{s}\,ds.
-    \label{eq:Gaussperron}
-\end{equation}
-Since $Q_0^{\chi}$ is analytic and bounded on the integration line,
-the integral reduces to a Fourier transform of
-$L(\sigma+it,\chi_{-4})/(\sigma+it)$ at frequency $\log x$.
-
-\subsection{The Final Statement}
-
-\begin{definition}[Lindelöf $\mu$-function for $L$-functions]
-\label{def:lindelofL}
-For a Dirichlet $L$-function $L(s,\chi)$, define
-$\mu_\chi(\sigma) := \inf\{\alpha \ge 0 : L(\sigma+it,\chi) = O(|t|^\alpha)\}$.
-\end{definition}
-
-\begin{theorem}[Gauss circle and $L$-function growth]
-\label{thm:Gaussfinal}
-The derivation establishes the upper bound
-\begin{equation}
-    \theta_{\mathrm{Gauss}} \;\le\; \mu_{\chi_{-4}}\!\left(\tfrac{3}{4}\right),
-    \label{eq:thetaGauss}
-\end{equation}
-where $\mu_{\chi_{-4}}$ is the Lindel\"of $\mu$-function for $L(s,\chi_{-4})$
-(Definition~\ref{def:lindelofL}).  Explicitly: the Perron integral
-\eqref{eq:Gaussperron}, dominated by $F_0^{\mathrm{Gauss}}(s)$, converges
-for $\mathrm{Re}(s) > 1/2+\mu_{\chi_{-4}}(3/4)$ and yields
-$\sum_{N\le x}E_3(N) = O(x^{1/2+\mu_{\chi_{-4}}(3/4)+\varepsilon})$.
-
-The classical equality $\theta_{\mathrm{Gauss}} = \mu_{\chi_{-4}}(3/4)$ is
-known in the literature, but the reverse inequality
-$\theta_{\mathrm{Gauss}} \ge \mu_{\chi_{-4}}(3/4)$ requires a Tauberian
-argument controlling the cancellation between the $k=0$ and $k=1$ layers —
-the step identified as open in Remark~\ref{rem:gapG}.  This derivation does
-not carry out that step.  Accordingly, the correct statement derived here is:
-\[
-    \boxed{\theta_{\mathrm{Gauss}} \;\le\; \mu_{\chi_{-4}}\!\left(\tfrac{3}{4}\right),}
-\]
-with equality conditional on closing the cancellation gap.
-
-Note: Hardy's $\Omega$-theorem ($E_3(N)=\Omega(N^{1/4})$) gives the
-independent lower bound $\theta_{\mathrm{Gauss}} \ge 1/4$, hence also
-$\mu_{\chi_{-4}}(3/4) \ge 1/4$.  This bounds $\sigma_0$ below by $3/4$ but
-does not resolve the question of whether $\sigma_0 = \sigma_c(F_0^{\mathrm{Gauss}})$.
-\end{theorem}
-
-The conjecture $\theta_{\mathrm{Gauss}} = 1/4$ is equivalent to:
-\begin{quote}
-    \emph{$L(3/4+it,\chi_{-4})$ remains sub-polynomially bounded in $|t|$.}
-\end{quote}
+The earlier version of this section applied Perron's formula to
+$F_{\mathrm{Gauss}}(s)=\sum E_3(N)N^{-s}$ and concluded
+$\theta_{\mathrm{Gauss}}\le\mu_{\chi_{-4}}(3/4)$, with the Gauss circle conjecture
+``equivalent'' to sub-polynomial growth of $L(3/4+it,\chi_{-4})$.  This is withdrawn for the
+same reasons as in the divisor note: $E_3$ is a Riesz-mean error of size $N^{3/4}$ by theorem,
+and abscissa/Perron arguments control means rather than the pointwise bound on $\Delta_L$.
+The perturbative decomposition of Sections~6--7 is retained as structure only.
 
 %-----------------------------------------------------------------------
 \section{The Sibling Relationship with the Divisor Problem}
@@ -505,45 +473,33 @@ Huxley bound & $\theta \le 131/416$ & $\theta \le 131/416$\\
 \end{tabular}
 \end{center}
 
-Both problems reduce to the same question — how far left into the critical
-strip does the relevant $L$-function remain well-behaved in the vertical
-direction — and both are controlled by the same van der Corput exponential
-sum technology.  The identical Huxley bound is not a coincidence: the
-exponent pair machinery does not distinguish between $\zeta$ and
-$L(\cdot,\chi_{-4})$ at this level of precision.
+Both problems are order-1 Riesz means (of $\tau$, resp.\ $r_2$), so both ``Error'' rows
+above are of exact order $n^{3/4}$, resp.\ $N^{3/4}$, unconditionally.  The identical Huxley bound applies to
+the \emph{pointwise} errors $\Delta$ and $\Delta_L$ (same exponent-pair technology), which
+is where the actual conjectures live.
 
 \subsection{The Generalisation}
 
-For any primitive Dirichlet character $\chi$, define
-\[
-    b_\chi(N) = \sum_{k=1}^{N-1}(N-k)\,\left(\sum_{d|k}\chi(d)\right),
-\]
-and the analogous error $E_\chi(N)$.  The same derivation gives
-$F_\chi(s) \approx L(s,\chi)\cdot Q_0^\chi(s)$,
-and $\theta_\chi$ satisfies $\theta_\chi \le \mu_\chi(3/4)$ (upper bound
-from the Perron integral), with $\theta_\chi \ge 1/4$ from the
-$\Omega$-theorem for each such character problem.  The equality
-$\theta_\chi = \mu_\chi(3/4)$ holds modulo the same cancellation gap.
-There is one such problem for each $L$-function; the obstruction in every
-case is sub-polynomial vertical growth of $L(\cdot,\chi)$ near
-$\mathrm{Re}(s) = 3/4$, bounded below by the same Hardy floor.
+For any primitive Dirichlet character $\chi$ the analogous Riesz mean
+$b_\chi(N)=\sum_{k<N}(N-k)\sum_{d\mid k}\chi(d)$ has error of size $N^{3/4}$ by the same
+Voronoi-type expansion (when the corresponding series converges absolutely at this order), so the
+same remark applies.
 
 %-----------------------------------------------------------------------
-\section{The Hierarchy of Implications}
+\section{Implications (corrected)}
 %-----------------------------------------------------------------------
 
-\[
-    \text{RH for }L(\cdot,\chi_{-4})
-    \implies \text{Lindelöf: }\mu(1/2)=0
-    \implies \mu(3/4)=0
-    \implies \theta_{\mathrm{Gauss}} = \tfrac{1}{4}.
-\]
+The chain $\mathrm{RH}\Rightarrow\mathrm{Lindel\ddot of}\Rightarrow\mu(3/4)=0\Rightarrow
+\theta_{\mathrm{Gauss}}=\tfrac14$ that stood here is withdrawn: its last arrow is not known.
+For the divisor analogue, the \emph{generalized} conjecture $\alpha_k=(k-1)/(2k)$ for all
+$k\ge2$ implies Lindel\"of (Titchmarsh, Ch.~XII); I found no implication in the other
+direction at $k=2$.  The Gauss-circle problem is governed by the Dedekind zeta function
+$\zeta_{\mathbb Q(i)}=\zeta\cdot L(\cdot,\chi_{-4})$, so RH for $\zeta$ together with GRH for
+Dirichlet $L$-functions covers its zeros, but, as for the divisor problem, zero-location
+alone does not yield the pointwise exponent $1/4$.
 
-The Lindelöf hypothesis for $L(s,\chi_{-4})$ states
-$L(1/2+it,\chi_{-4}) = O(|t|^\varepsilon)$ for all $\varepsilon > 0$.
-This would imply $\theta_{\mathrm{Gauss}} = 1/4$ immediately.
-Current best (Huxley): $\theta_{\mathrm{Gauss}} \le 131/416 \approx 0.315$,
-empirically $\approx 0.263$ at $N = 10^{18}$.
+To test the pointwise conjecture use \texttt{delta.cpp --delta}, which computes
+$A(N)=b_1(N+1)-b_1(N)$ and $\Delta(N)=A(N)-\pi N$ directly.
 
 \bigskip
 \hrule
