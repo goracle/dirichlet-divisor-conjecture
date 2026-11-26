@@ -182,9 +182,17 @@ oscillatory parts.  The oscillatory residual of the $i$-th term is:
     \delta T_i(n) = \frac{r_i(i - 2 - r_i)}{i}.
     \label{eq:dT}
 \end{equation}
+Here $r_i=m \bmod i$ and $m=n-1$ (the identity \eqref{eq:ahoying} gives $a(m+1)$).
+\emph{Correction (Nov.\ 2026):} an earlier version claimed the error in \eqref{eq:esum} is $O(1)$.
+Numerically it is not: the sum is off by a smooth $-m/12$ plus
+$\sqrt m\,P(\{\sqrt m\})$ with $P(u)=1-\tfrac23u+2u^2-\tfrac43u^3$ (coefficients fitted to exact
+values, not yet derived; $C\approx-8.7$ likewise fitted). The $O(\sqrt m)$ terms come from writing
+$\lfloor\sqrt m\rfloor=\sqrt m-\{\sqrt m\}$ in the smooth part of \eqref{eq:ahoying}.
 Hence
 \begin{equation}
-    e(n) = \sum_{i=1}^{\lfloor\sqrt{n}\rfloor} \delta T_i(n) + O(1).
+    e(n) = \sum_{i=1}^{\lfloor\sqrt{m}\rfloor} \delta T_i(m)
+           - \frac{m}{12} + \sqrt{m}\,P(\{\sqrt{m}\}) + C + o(1),
+    \qquad m=n-1,
     \label{eq:esum}
 \end{equation}
 

@@ -89,10 +89,14 @@ Two companion derivations connect the empirical results to the analytic theory o
 Starting from the exact identity `a(n) = n·D(n−1) − σ_τ(n−1)`, the oscillatory error decomposes as:
 
 ```
-e(n) = Σ_{i=1}^{floor(√n)}  r_i(i − 2 − r_i) / i  +  O(1)
+e(n) = Σ_{i=1}^{s}  r_i(i − 2 − r_i) / i  −  m/12  +  √m · P({√m})  +  C  +  o(1),
+       m = n − 1,  s = floor(√m),  r_i = m mod i,
+       P(u) = 1 − (2/3)u + 2u² − (4/3)u³
 ```
 
-where `r_i = n mod i`. The Dirichlet series `F(s) = Σ e(n)/n^s` expands as:
+> **Correction (November 2026).** An earlier version of this section stated the sum with an `O(1)` error. That is false: the sum alone is off by `≈ −m/12`, a smooth term, plus `√m·P({√m})`, which oscillates with the fractional part of `√m`. Both come from replacing `Σ_{i≤s} 1/i` and the `s`-dependent polynomial terms in the Hoying formula by their expansions in `√m` (`s = √m − {√m}`). The coefficients of `P` were found by least-squares fit to exact values (`check_decomposition.py`, fit `1.0000, −0.6667, 2.0002, −1.3338`) and not yet derived symbolically; `C ≈ −8.7` is also a fit, not derived. The `Σ r_i(i−2−r_i)/i` part has mean `≈ m/12` (each term averages `i/6`), so the `−m/12` re-centres it; the remaining correction is **not** `O(1)`. This also means the perturbative Dirichlet-series framework below (`F = F₀ + F₁ + R`), which was built on the `O(1)` form, is missing these terms; it is kept as structure only.
+
+The Dirichlet series `F(s) = Σ e(n)/n^s` expands as:
 
 ```
 F(s) = F_0(s) + F_1(s) + R(s)
