@@ -6,7 +6,13 @@ defaultTargets = ["DirichletDivisor"]
 [leanOptions]
 pp.unicode.fun = true # pretty-prints `fun a ↦ b`
 relaxedAutoImplicit = false
-weak.linter.mathlibStandardSet = true
+weak.linter.mathlibStandardSet = false
+weak.linter.style.header = false
+weak.linter.style.show = false
+weak.linter.unusedTactic = false
+weak.linter.unreachableTactic = false
+weak.linter.unnecessarySeqFocus = false
+linter.deprecated = false
 maxSynthPendingDepth = 3
 
 [[require]]

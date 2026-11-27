@@ -185,8 +185,12 @@ theorem chirp_error (u L Efin Einv S : ℝ) (hu0 : 0 ≤ u) (hS : 0 ≤ S) (hL :
       ≤ (65 / 64) * (304 * u * L ^ 2 * (1 + S)) := by
     nlinarith [hW]
   have hL2 : 4 ≤ L ^ 2 := by nlinarith
-  have h3 : u * L ≤ u * L ^ 2 := by nlinarith
-  have h4 : 4 * u ≤ u * L ^ 2 := by nlinarith
+  have hLL : L ≤ L ^ 2 := by nlinarith
+  have h3 : u * L ≤ u * L ^ 2 := mul_le_mul_of_nonneg_left hLL hu0
+  have h4 : 4 * u ≤ u * L ^ 2 := by
+    have := mul_le_mul_of_nonneg_left hL2 hu0
+    linarith
+
   have h5 : u * L ^ 2 ≤ u * L ^ 2 * (1 + S) := by
     nlinarith [mul_nonneg (mul_nonneg hu0 (sq_nonneg L)) hS]
   nlinarith [h1, h2, h3, h4, h5, hW]
