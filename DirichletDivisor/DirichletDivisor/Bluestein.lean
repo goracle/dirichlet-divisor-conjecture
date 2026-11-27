@@ -47,5 +47,80 @@ theorem pow_two_add_le (u : ℝ) (S : ℕ) (hu0 : 0 ≤ u) (hu : u * S ≤ 1 / 4
   rw [h3]
   have h4 : 0 < (2 : ℝ) ^ j := by positivity
   nlinarith
+  
+
+/-- Eq. (15): unrolled FFT stage recurrence. L = 2^S. -/
+theorem stage_recurrence (E : ℕ → ℝ) (u M0 : ℝ) (S : ℕ)
+    (hu0 : 0 ≤ u) (hM0 : 0 ≤ M0) (hE0 : 0 ≤ E 0) (huS : u * S ≤ 1 / 4)
+    (hrec : ∀ s, s < S → E (s + 1) ≤ (2 + u) * E s + u * 2 ^ s * M0 + 7 * u) :
+    E S ≤ 2 * 2 ^ S * E 0 + 32 * u * 2 ^ S * (1 + M0 * S) := by
+  have inv : ∀ k : ℕ, k ≤ S →
+      E k ≤ (2 + u) ^ k * (E 0 + (k : ℝ) * u * M0 / 2 + 7 * u * (1 - 1 / 2 ^ k)) := by
+    intro k
+    induction k with
+    | zero => intro _; simp
+    | succ n ih =>
+      intro hn
+      have hn' : n < S := Nat.lt_of_succ_le hn
+      have ih' := ih (by omega)
+      have hr := hrec n hn'
+      have hP : (2 : ℝ) ^ (n + 1) ≤ (2 + u) ^ (n + 1) := by
+        first
+          | exact pow_le_pow_left₀ (by norm_num) (by linarith) _
+          | exact pow_le_pow_left (by norm_num) (by linarith) _
+      have h3 : (2 + u) * E n ≤ (2 + u) ^ (n + 1) *
+          (E 0 + (n : ℝ) * u * M0 / 2 + 7 * u * (1 - 1 / 2 ^ n)) := by
+        calc (2 + u) * E n
+            ≤ (2 + u) * ((2 + u) ^ n *
+                (E 0 + (n : ℝ) * u * M0 / 2 + 7 * u * (1 - 1 / 2 ^ n))) :=
+              mul_le_mul_of_nonneg_left ih' (by linarith)
+          _ = (2 + u) ^ (n + 1) *
+                (E 0 + (n : ℝ) * u * M0 / 2 + 7 * u * (1 - 1 / 2 ^ n)) := by ring
+      have h4 : u * 2 ^ n * M0 ≤ (2 + u) ^ (n + 1) * (u * M0 / 2) := by
+        calc u * 2 ^ n * M0 = 2 ^ (n + 1) * (u * M0 / 2) := by ring
+          _ ≤ (2 + u) ^ (n + 1) * (u * M0 / 2) :=
+              mul_le_mul_of_nonneg_right hP (by positivity)
+      have h5 : 7 * u ≤ (2 + u) ^ (n + 1) * (7 * u / 2 ^ (n + 1)) := by
+        calc 7 * u = 2 ^ (n + 1) * (7 * u / 2 ^ (n + 1)) := by field_simp
+          _ ≤ (2 + u) ^ (n + 1) * (7 * u / 2 ^ (n + 1)) :=
+              mul_le_mul_of_nonneg_right hP (by positivity)
+      have h6 : (2 + u) ^ (n + 1) *
+            (E 0 + ((n : ℝ) + 1) * u * M0 / 2 + 7 * u * (1 - 1 / 2 ^ (n + 1)))
+          = (2 + u) ^ (n + 1) *
+              (E 0 + (n : ℝ) * u * M0 / 2 + 7 * u * (1 - 1 / 2 ^ n))
+            + (2 + u) ^ (n + 1) * (u * M0 / 2)
+            + (2 + u) ^ (n + 1) * (7 * u / 2 ^ (n + 1)) := by
+        field_simp
+        ring
+      push_cast
+      linarith [h3, h4, h5, h6, hr]
+  have h := inv S le_rfl
+  have hj := pow_two_add_le u S hu0 huS S le_rfl
+  have hL : (0 : ℝ) < 2 ^ S := by positivity
+  have h1S : (1 : ℝ) ≤ 2 ^ S := by exact_mod_cast (Nat.one_le_two_pow : 1 ≤ 2 ^ S)
+  have hfrac : (1 : ℝ) / 2 ^ S ≤ 1 := by
+    rw [div_le_one hL]; exact h1S
+  have hS0 : (0 : ℝ) ≤ S := Nat.cast_nonneg S
+  have hI0 : 0 ≤ E 0 + (S : ℝ) * u * M0 / 2 + 7 * u * (1 - 1 / 2 ^ S) := by
+    have : 0 ≤ 7 * u * (1 - 1 / 2 ^ S) :=
+      mul_nonneg (by linarith) (by linarith)
+    have : 0 ≤ (S : ℝ) * u * M0 / 2 := by positivity
+    linarith
+  have hIup : E 0 + (S : ℝ) * u * M0 / 2 + 7 * u * (1 - 1 / 2 ^ S)
+      ≤ E 0 + (S : ℝ) * u * M0 / 2 + 7 * u := by
+    have : 0 ≤ 7 * u * (1 / 2 ^ S) := by positivity
+    nlinarith
+  have a : 0 ≤ (2 : ℝ) ^ S * E 0 := by positivity
+  have b : 0 ≤ u * 2 ^ S := by positivity
+  have c : 0 ≤ u * 2 ^ S * (M0 * S) := by positivity
+  calc E S ≤ (2 + u) ^ S *
+          (E 0 + (S : ℝ) * u * M0 / 2 + 7 * u * (1 - 1 / 2 ^ S)) := h
+    _ ≤ (3 / 2 * 2 ^ S) *
+          (E 0 + (S : ℝ) * u * M0 / 2 + 7 * u * (1 - 1 / 2 ^ S)) :=
+        mul_le_mul_of_nonneg_right hj hI0
+    _ ≤ (3 / 2 * 2 ^ S) * (E 0 + (S : ℝ) * u * M0 / 2 + 7 * u) :=
+        mul_le_mul_of_nonneg_left hIup (by positivity)
+    _ ≤ 2 * 2 ^ S * E 0 + 32 * u * 2 ^ S * (1 + M0 * S) := by
+        nlinarith [a, b, c]
 
 end DirichletDivisor
