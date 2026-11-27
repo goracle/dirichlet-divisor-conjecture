@@ -122,5 +122,123 @@ theorem stage_recurrence (E : ℕ → ℝ) (u M0 : ℝ) (S : ℕ)
         mul_le_mul_of_nonneg_left hIup (by positivity)
     _ ≤ 2 * 2 ^ S * E 0 + 32 * u * 2 ^ S * (1 + M0 * S) := by
         nlinarith [a, b, c]
+        
+
+
+/-- (15) specialised: forward transform of inputs of modulus ≤ 1 and initial error ≤ 10u. -/
+theorem fft_forward_error (E : ℕ → ℝ) (u : ℝ) (S : ℕ)
+    (hu0 : 0 ≤ u) (hE0 : 0 ≤ E 0) (hE0' : E 0 ≤ 10 * u) (huS : u * S ≤ 1 / 4)
+    (hrec : ∀ s, s < S → E (s + 1) ≤ (2 + u) * E s + u * 2 ^ s * 1 + 7 * u) :
+    E S ≤ 64 * u * 2 ^ S * (1 + S) := by
+  have h := stage_recurrence E u 1 S hu0 zero_le_one hE0 huS hrec
+  have h1 : 2 * (2 : ℝ) ^ S * E 0 ≤ 2 * 2 ^ S * (10 * u) :=
+    mul_le_mul_of_nonneg_left hE0' (by positivity)
+  have b : 0 ≤ u * (2 : ℝ) ^ S := by positivity
+  have c : 0 ≤ u * (2 : ℝ) ^ S * S := by positivity
+  nlinarith [b, c, h, h1]
+
+/-- Pointwise product error: Eprod ≤ 2Lδ + δ² + 5u ≤ 200 u L² (1+S). -/
+theorem prod_error (u L δ Eprod S : ℝ) (hu0 : 0 ≤ u) (hS : 0 ≤ S) (hL : 2 ≤ L)
+    (hδ0 : 0 ≤ δ) (hδ : δ ≤ 64 * u * L * (1 + S))
+    (hsmall : 64 * u * (1 + S) ≤ 1)
+    (hE : Eprod ≤ 2 * L * δ + δ ^ 2 + 5 * u) :
+    Eprod ≤ 200 * u * L ^ 2 * (1 + S) := by
+  have hL0 : 0 ≤ L := by linarith
+  have hδL : δ ≤ L := by
+    calc δ ≤ 64 * u * L * (1 + S) := hδ
+      _ = L * (64 * u * (1 + S)) := by ring
+      _ ≤ L * 1 := mul_le_mul_of_nonneg_left hsmall hL0
+      _ = L := by ring
+  have hsq : δ * δ ≤ (64 * u * L * (1 + S)) * L :=
+    mul_le_mul hδ hδL hδ0 (by positivity)
+  have hLδ : L * δ ≤ L * (64 * u * L * (1 + S)) :=
+    mul_le_mul_of_nonneg_left hδ hL0
+  have hW : 0 ≤ u * L ^ 2 * (1 + S) := by positivity
+  have hL2 : 4 ≤ L ^ 2 := by nlinarith
+  have h5 : 4 * u ≤ u * L ^ 2 := by nlinarith
+  have h5' : u * L ^ 2 ≤ u * L ^ 2 * (1 + S) := by nlinarith [mul_nonneg (mul_nonneg hu0 (sq_nonneg L)) hS]
+  nlinarith [hsq, hLδ, h5, h5', hW]
+
+/-- Inverse transform: Einv ≤ 3/2 Eprod + 3/4 u L² S + 21/2 u ≤ 304 u L² (1+S). -/
+theorem inv_error (u L Einv Eprod S : ℝ) (hu0 : 0 ≤ u) (hS : 0 ≤ S) (hL : 2 ≤ L)
+    (hE : Einv ≤ 3 / 2 * Eprod + 3 / 4 * u * L ^ 2 * S + 21 / 2 * u)
+    (hP : Eprod ≤ 200 * u * L ^ 2 * (1 + S)) :
+    Einv ≤ 304 * u * L ^ 2 * (1 + S) := by
+  have hL2 : 4 ≤ L ^ 2 := by nlinarith
+  have h1 : 4 * u ≤ u * L ^ 2 := by nlinarith
+  have h2 : u * L ^ 2 ≤ u * L ^ 2 * (1 + S) := by
+    nlinarith [mul_nonneg (mul_nonneg hu0 (sq_nonneg L)) hS]
+  have h3 : 0 ≤ u * L ^ 2 * S := mul_nonneg (mul_nonneg hu0 (sq_nonneg L)) hS
+  nlinarith [h1, h2, h3, hE, hP]
+
+/-- Final chirp multiplication: ≤ 512 u L² (1+S). -/
+theorem chirp_error (u L Efin Einv S : ℝ) (hu0 : 0 ≤ u) (hS : 0 ≤ S) (hL : 2 ≤ L)
+    (hsmall : u * (1 + S) ≤ 1 / 64)
+    (hE : Efin ≤ (1 + u) * Einv + u * L + 5 * u)
+    (hI : Einv ≤ 304 * u * L ^ 2 * (1 + S)) :
+    Efin ≤ 512 * u * L ^ 2 * (1 + S) := by
+  have hW : 0 ≤ u * L ^ 2 * (1 + S) := by positivity
+  have hu : u ≤ 1 / 64 := by nlinarith [mul_nonneg hu0 hS]
+  have h1 : (1 + u) * Einv ≤ (1 + u) * (304 * u * L ^ 2 * (1 + S)) :=
+    mul_le_mul_of_nonneg_left hI (by linarith)
+  have h2 : (1 + u) * (304 * u * L ^ 2 * (1 + S))
+      ≤ (65 / 64) * (304 * u * L ^ 2 * (1 + S)) := by
+    nlinarith [hW]
+  have hL2 : 4 ≤ L ^ 2 := by nlinarith
+  have h3 : u * L ≤ u * L ^ 2 := by nlinarith
+  have h4 : 4 * u ≤ u * L ^ 2 := by nlinarith
+  have h5 : u * L ^ 2 ≤ u * L ^ 2 * (1 + S) := by
+    nlinarith [mul_nonneg (mul_nonneg hu0 (sq_nonneg L)) hS]
+  nlinarith [h1, h2, h3, h4, h5, hW]
+
+/-- Conversion to the (16) shape, with L = 2^S, S ≥ 1. -/
+theorem chirp_to_final (u : ℝ) (S : ℕ) (hu0 : 0 ≤ u) (hS : 1 ≤ S) :
+    512 * u * ((2 : ℝ) ^ S) ^ 2 * (1 + S)
+      ≤ 2 ^ 12 * u * ((2 : ℝ) ^ S) ^ 3 * (Real.log (2 * 2 ^ S)) ^ 2 := by
+  have hL1 : (2 : ℝ) ≤ 2 ^ S := by
+    calc (2 : ℝ) = 2 ^ 1 := by norm_num
+      _ ≤ 2 ^ S := pow_le_pow_right₀ (by norm_num) hS
+  have hS' : (1 : ℝ) ≤ S := by exact_mod_cast hS
+  have hlog : Real.log (2 * 2 ^ S) = ((S : ℝ) + 1) * Real.log 2 := by
+    rw [Real.log_mul (by norm_num) (by positivity), Real.log_pow]
+    ring
+  have hl2 : (1 : ℝ) / 2 < Real.log 2 := by
+    have := Real.log_two_gt_d9
+    linarith
+  set ℓ := Real.log (2 * 2 ^ S) with hℓ
+  set L : ℝ := 2 ^ S with hLdef
+  have hℓ1 : (1 : ℝ) ≤ ℓ := by
+    rw [hlog]; nlinarith
+  have h2ℓ : (1 : ℝ) + S ≤ 2 * ℓ := by
+    rw [hlog]; nlinarith
+  have hLl : (1 : ℝ) ≤ L * ℓ := by nlinarith
+  have hW : 0 ≤ u * L ^ 2 := by positivity
+  have h1 : u * L ^ 2 * (1 + S) ≤ u * L ^ 2 * (2 * ℓ) :=
+    mul_le_mul_of_nonneg_left h2ℓ hW
+  have h2 : u * L ^ 2 * (2 * ℓ) ≤ u * L ^ 2 * (2 * ℓ) * (L * ℓ) :=
+    le_mul_of_one_le_right (by positivity) hLl
+  have h3 : 0 ≤ u * L ^ 3 * ℓ ^ 2 := by positivity
+  nlinarith [h1, h2, h3]
+
+/-- Eq. (16), assembled: from the chain of hypotheses in §5 to the 2^12 constant. -/
+theorem bluestein_table_error (u : ℝ) (S : ℕ) (δ Eprod Einv Efin : ℝ)
+    (hS : 1 ≤ S) (hu0 : 0 ≤ u) (hδ0 : 0 ≤ δ)
+    (hsmall : 64 * u * (1 + S) ≤ 1)
+    (hδ : δ ≤ 64 * u * 2 ^ S * (1 + S))
+    (hP : Eprod ≤ 2 * 2 ^ S * δ + δ ^ 2 + 5 * u)
+    (hI : Einv ≤ 3 / 2 * Eprod + 3 / 4 * u * ((2 : ℝ) ^ S) ^ 2 * S + 21 / 2 * u)
+    (hC : Efin ≤ (1 + u) * Einv + u * 2 ^ S + 5 * u) :
+    Efin ≤ 2 ^ 12 * u * ((2 : ℝ) ^ S) ^ 3 * (Real.log (2 * 2 ^ S)) ^ 2 := by
+  have hSr : (0 : ℝ) ≤ S := Nat.cast_nonneg S
+  have hL : (2 : ℝ) ≤ 2 ^ S := by
+    calc (2 : ℝ) = 2 ^ 1 := by norm_num
+      _ ≤ 2 ^ S := pow_le_pow_right₀ (by norm_num) hS
+  have hP' := prod_error u (2 ^ S) δ Eprod S hu0 hSr hL hδ0 hδ hsmall hP
+  have hI' := inv_error u (2 ^ S) Einv Eprod S hu0 hSr hL hI hP'
+  have hs2 : u * (1 + S) ≤ 1 / 64 := by linarith
+  have hC' := chirp_error u (2 ^ S) Efin Einv S hu0 hSr hL hs2 hC hI'
+  exact hC'.trans (chirp_to_final u S hu0 hS)
+
+
 
 end DirichletDivisor
