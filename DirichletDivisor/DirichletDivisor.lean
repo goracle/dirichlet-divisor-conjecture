@@ -25,3 +25,6 @@ import DirichletDivisor.TailSum
 import DirichletDivisor.TailSeries
 import DirichletDivisor.DivisorTail
 import DirichletDivisor.TailParam
+import DirichletDivisor.TailSpecialize
+import DirichletDivisor.HankelSum
+import DirichletDivisor.K2Sum
