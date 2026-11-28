@@ -24,3 +24,4 @@ import DirichletDivisor.FsDecay
 import DirichletDivisor.TailSum
 import DirichletDivisor.TailSeries
 import DirichletDivisor.DivisorTail
+import DirichletDivisor.TailParam
