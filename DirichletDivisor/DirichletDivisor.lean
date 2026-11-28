@@ -29,3 +29,4 @@ import DirichletDivisor.TailSpecialize
 import DirichletDivisor.HankelSum
 import DirichletDivisor.K2Sum
 import DirichletDivisor.VoronoiSplit
+import DirichletDivisor.EtaAverage
