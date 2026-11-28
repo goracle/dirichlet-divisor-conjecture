@@ -19,3 +19,4 @@ import DirichletDivisor.Assembly
 import DirichletDivisor.Parameters
 import DirichletDivisor.Stirling
 import DirichletDivisor.Decay
+import DirichletDivisor.Gevrey
