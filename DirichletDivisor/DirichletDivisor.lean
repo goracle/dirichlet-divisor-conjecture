@@ -30,3 +30,7 @@ import DirichletDivisor.HankelSum
 import DirichletDivisor.K2Sum
 import DirichletDivisor.VoronoiSplit
 import DirichletDivisor.EtaAverage
+import DirichletDivisor.SmoothLink
+import DirichletDivisor.Idealized
+import DirichletDivisor.DualInt
+import DirichletDivisor.DualFourier
