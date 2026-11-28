@@ -20,3 +20,7 @@ import DirichletDivisor.Parameters
 import DirichletDivisor.Stirling
 import DirichletDivisor.Decay
 import DirichletDivisor.Gevrey
+import DirichletDivisor.FsDecay
+import DirichletDivisor.TailSum
+import DirichletDivisor.TailSeries
+import DirichletDivisor.DivisorTail
