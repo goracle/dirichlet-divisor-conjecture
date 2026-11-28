@@ -34,3 +34,8 @@ import DirichletDivisor.SmoothLink
 import DirichletDivisor.Idealized
 import DirichletDivisor.DualInt
 import DirichletDivisor.DualFourier
+import DirichletDivisor.DualTruncate
+import DirichletDivisor.DualOracle
+import DirichletDivisor.DualQuad
+import DirichletDivisor.DualFinal
+import DirichletDivisor.ShellCost
